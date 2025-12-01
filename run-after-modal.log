@@ -1,0 +1,6 @@
+
+Running 1 test using 1 worker
+
+  ✓  1 tests/testDemo.spec.js:5:1 › Dev login with manual OTP verification and create asset wallet (13.8s)
+
+  1 passed (14.8s)
