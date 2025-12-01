@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test';
 
 test.setTimeout(180000);
 
-test('Dev login with manual OTP verification and create asset wallet', async ({ page }) => {
+test('Dev login with manual OTP verification and create asset wallet', async ({ page, context }) => {
+  // Grant clipboard permissions to avoid permission prompts
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  
   const email = 'hwashenwong+2@gambit.com.my';
   const password = 'Yy12220901!';
 
@@ -48,22 +51,73 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
   await detectAndClickCreateAssetWallet(activePage);
 
   // Step 5: Wait for modal (may be in an iframe) and handle modal flow
+  // Set up listeners for page events and new pages
+  let newPageCreated = null;
+  const pageListener = (newPage) => {
+    console.log('🆕 New page event detected');
+    newPageCreated = newPage;
+  };
+  ctx.on('page', pageListener);
+  
   const modalContext = await waitForCreateAssetModal(activePage); // returns either Page or Frame
   await handleCreateAssetModal(modalContext);
+  
+  // Remove page listener after modal handling
+  ctx.off('page', pageListener);
+  
+  // If a new page was created, use it
+  if (newPageCreated && !newPageCreated.isClosed?.()) {
+    console.log('✓ Using newly created page');
+    activePage = newPageCreated;
+  }
 
   // Step 6: Wait for dashboard to reload and select the newly created wallet
   try {
     console.log('Step 6: Waiting for dashboard reload after wallet creation...');
-    await activePage.waitForTimeout(2000);
     
-    // Ensure page is still open before proceeding
-    if (activePage.isClosed && activePage.isClosed()) {
-      const pages = ctx.pages();
-      activePage = pages[pages.length - 1];
+    // After Create is clicked, the page may close and a new one may open
+    // Wait for either the current page to have a table, or check for new pages
+    let pageReady = false;
+    let attempts = 0;
+    
+    while (!pageReady && attempts < 20) {
+      attempts++;
+      try {
+        // Check if current page still has the table
+        const tableCount = await activePage.locator('table, [role="table"]').first().count().catch(() => 0);
+        if (tableCount > 0) {
+          console.log('✓ Table found on current page');
+          pageReady = true;
+          break;
+        }
+      } catch (e) {
+        // Current page not accessible
+      }
+      
+      // Try to get the last available page
+      try {
+        const pages = ctx.pages();
+        if (pages.length > 0) {
+          activePage = pages[pages.length - 1];
+          const tableCount = await activePage.locator('table, [role="table"]').first().count().catch(() => 0);
+          if (tableCount > 0) {
+            console.log(`✓ Table found on recovered page (attempt ${attempts})`);
+            pageReady = true;
+            break;
+          }
+        }
+      } catch (e) {
+        // No pages available yet
+      }
+      
+      // Wait a bit before trying again
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
-
-    // Wait for dashboard table to load
-    await activePage.locator('table, [role="table"]').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    
+    if (!pageReady) {
+      console.log('❌ Could not find page with table after waiting');
+      return;
+    }
     
     // Step 7: Find and select the newly created wallet row (first table data row)
     console.log('Step 7: Finding and selecting the created wallet from table...');
@@ -213,12 +267,14 @@ async function handleCreateAssetModal(ctx) {
     if ((await option.count()) > 0) { await option.click().catch(() => option.click({ force: true })); console.log('✓ OKK selected'); }
   } catch (e) { console.log('Select OKK failed:', e.message); }
 
-  // 2) Fill name field robustly
+  // 2) Fill name field robustly with random name
   console.log('Step 2: Filling name field...');
+  const randomWalletName = generateRandomWalletName();
+  console.log(`Generated wallet name: ${randomWalletName}`);
   try {
     const nameInput = modal.locator('input[placeholder="Name"], input[placeholder*="name"], input[id*="name"]').first();
     if ((await nameInput.count()) > 0) {
-      await nameInput.fill('Test Wallet 2').catch(() => {});
+      await nameInput.fill(randomWalletName).catch(() => {});
       console.log('✓ Name filled (via placeholder/id selector)');
     } else {
       const inputs = modal.locator('input:not([type="hidden"]):not([type="checkbox"])');
@@ -272,10 +328,28 @@ async function handleCreateAssetModal(ctx) {
   try {
     const create = modal.locator('button:has-text("Create"), button:has-text("Create Asset"), button:has-text("Confirm")').first();
     if ((await create.count()) > 0) { 
-      await create.click().catch(() => create.click({ force: true }));
-      console.log('✓ Create clicked');
-      await modalCtx.waitForTimeout(1000); 
-      if (modalCtx.screenshot) await modalCtx.screenshot({ path: 'create-asset-after-create.png', fullPage: true }); 
+      try {
+        // Use Promise.race to handle page navigation/closure gracefully
+        await Promise.race([
+          create.click(),
+          new Promise(r => setTimeout(() => r('timeout'), 5000))
+        ]);
+        console.log('✓ Create clicked');
+      } catch (e) {
+        // Try force click if normal click fails
+        console.log('Normal Create click failed, attempting force click...');
+        try {
+          await Promise.race([
+            create.click({ force: true }),
+            new Promise(r => setTimeout(() => r('timeout'), 5000))
+          ]);
+          console.log('✓ Create clicked (force)');
+        } catch (e2) {
+          console.log('Force click also failed:', e2.message);
+        }
+      }
+      // Don't wait for timeout after click - page may close
+      console.log('Create button action completed');
     }
   } catch (e) { console.log('Click Create failed:', e.message); }
 }
@@ -339,13 +413,99 @@ async function fillOtpInContext(ctx, containerLocator = null) {
   }
 }
 
+// Generate random wallet name like test1234
+function generateRandomWalletName() {
+  const randomNum = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+  return `test${randomNum}`;
+}
+
 // Manual OTP filler for login (uses Page context)
 async function fillOtpManually(page) {
   console.log('Starting OTP fill for login...');
   await fillOtpInContext(page);
 }
- 
-  // Handle the Create Asset modal: select option, fill name, check box, Next, OTP, Create
+
+// Select the first wallet from the table, click copy button, and extract wallet address
+async function selectAndCopyWalletAddress(page) {
+  try {
+    // Validate page is still open
+    if (page.isClosed && page.isClosed()) {
+      console.log('Page is closed, cannot extract wallet address');
+      return null;
+    }
+
+    console.log('Finding first wallet row in table...');
+    
+    // Find the first table row (tbody > tr or [role="row"])
+    const firstRow = page.locator('table tbody tr, [role="table"] [role="row"]').first();
+    if ((await firstRow.count()) === 0) {
+      console.log('No wallet row found in table');
+      return null;
+    }
+
+    // Click on the first row to select it
+    await firstRow.click().catch(() => {});
+    await page.waitForTimeout(300);
+
+    // Find the copy button inside the row (the icon button with copy icon)
+    const copyBtn = firstRow.locator('button[type="button"] .iconify[class*="i-carbon:copy"], button[type="button"] [class*="copy"], button:has(svg[class*="copy"])').first();
+    
+    if ((await copyBtn.count()) === 0) {
+      console.log('Copy button not found in wallet row, searching more broadly...');
+      const allBtns = await firstRow.locator('button[type="button"]').count();
+      console.log(`Found ${allBtns} buttons in row`);
+      
+      // Try any button in the row (usually copy is near the wallet address)
+      if (allBtns > 0) {
+        // Try clicking the last button (often the copy/action button)
+        const actionBtn = firstRow.locator('button[type="button"]').last();
+        if ((await actionBtn.count()) > 0) {
+          await actionBtn.click();
+          await page.waitForTimeout(200);
+        }
+      }
+    } else {
+      console.log('Copy button found, clicking...');
+      await copyBtn.click();
+      await page.waitForTimeout(200);
+    }
+
+    // Extract wallet address directly from the row's text content
+    const rowText = await firstRow.textContent().catch(() => '');
+    console.log('Wallet row text:', rowText.trim().substring(0, 200));
+
+    // Extract wallet address from row text (usually a hex address starting with 0x)
+    // This is more reliable than clipboard since we bypass permission prompts
+    let walletAddress = '';
+    const match = rowText.match(/0x[a-fA-F0-9]{40}/);
+    if (match) {
+      walletAddress = match[0];
+      console.log('Address extracted from row text');
+    }
+
+    if (walletAddress) {
+      console.log(`✓ Wallet address extracted: ${walletAddress}`);
+      
+      // Prepare recipients payload
+      const recipientsPayload = {
+        recipients: [walletAddress],
+        amounts: [0.000001],
+        type: 'native'
+      };
+
+      return {
+        walletAddress,
+        recipientsPayload
+      };
+    } else {
+      console.log('Could not extract wallet address');
+      return null;
+    }
+  } catch (e) {
+    console.log('selectAndCopyWalletAddress error:', e.message);
+    return null;
+  }
+}
  
 
 

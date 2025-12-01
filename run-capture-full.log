@@ -1,0 +1,286 @@
+
+Running 1 test using 1 worker
+
+Starting OTP fill for login...
+Filling multi-digit OTP inputs...
+Verify clicked
+[RESPONSE] 200 /asset
+Step 1: Selecting OKK asset...
+[RESPONSE] 200 /ETH.png
+[RESPONSE] 200 /BNB.png
+[RESPONSE] 200 /BTC.png
+[RESPONSE] 200 /USDT.png
+[RESPONSE] 200 /LITECOIN.png
+[RESPONSE] 200 /BID.png
+[RESPONSE] 200 /OKK.png
+[RESPONSE] 200 /POL.png
+[RESPONSE] 200 /TRX.png
+✓ OKK selected
+Step 2: Filling name field...
+✓ Name filled (via placeholder/id selector): test3358
+Step 3: Checking checkbox...
+✓ Checkbox checked
+Step 4: Clicking Next...
+✓ Next clicked, waiting for OTP screen...
+Step 5: Auto-filling OTP...
+Filling multi-digit OTP inputs...
+Submit clicked
+✓ OTP filled and verified
+Step 6: Clicking Create...
+[RESPONSE] 200 /create
+[CAPTURE] Full response from /create: {
+  "enterpriseId": "68b64a8e774f939e18ae7fb9",
+  "assetId": "673541644568104f466dcbf9",
+  "assetSymbol": "OKK",
+  "totalBalance": "0",
+  "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+  "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+  "name": "test3358",
+  "coldWalletEnabled": true,
+  "walletBlockEvent": {
+    "isBlocked": false,
+    "reason": ""
+  },
+  "_id": "692d529308f7ffcd7e75fb4c",
+  "createdAt": "2025-12-01T08:32:19.422Z",
+  "updatedAt": "2025-12-01T08:32:19.422Z",
+  "__v": 0
+}
+[RESPONSE] 200 /asset-wallet
+[CAPTURE] Full response from /asset-wallet: {
+  "assetWalletRes": [
+    {
+      "_id": "692d529308f7ffcd7e75fb4c",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test3358",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:32:19.422Z",
+      "updatedAt": "2025-12-01T08:32:19.422Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d526e08f7ffcd7e75fafe",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test2755",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:31:42.879Z",
+      "updatedAt": "2025-12-01T08:31:42.879Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d51e108f7ffcd7e75fa9e",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test2994",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:29:21.561Z",
+      "updatedAt": "2025-12-01T08:29:21.561Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d519108f7ffcd7e75fa71",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test7038",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:28:01.677Z",
+      "updatedAt": "2025-12-01T08:28:01.677Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d515f08f7ffcd7e75fa4c",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test7684",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:27:11.833Z",
+      "updatedAt": "2025-12-01T08:27:11.833Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d50a108f7ffcd7e75f9d3",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test3023",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:24:01.183Z",
+      "updatedAt": "2025-12-01T08:24:01.183Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d503208f7ffcd7e75f855",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test3712",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:22:10.938Z",
+      "updatedAt": "2025-12-01T08:22:10.938Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d4e8c08f7ffcd7e75f746",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test2876",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:15:08.715Z",
+      "updatedAt": "2025-12-01T08:15:08.715Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d4e1608f7ffcd7e75f705",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test5647",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:13:10.429Z",
+      "updatedAt": "2025-12-01T08:13:10.429Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    },
+    {
+      "_id": "692d4da908f7ffcd7e75f6e0",
+      "enterpriseId": "68b64a8e774f939e18ae7fb9",
+      "assetId": "673541644568104f466dcbf9",
+      "assetSymbol": "OKK",
+      "totalBalance": "0",
+      "nativeAssetId": "66e3a32f1e7580cbf8d98830",
+      "nativeAssetSymbol": "ETH_TEST_SEPOLIA",
+      "name": "test7975",
+      "coldWalletEnabled": true,
+      "walletBlockEvent": {
+        "isBlocked": false,
+        "reason": ""
+      },
+      "createdAt": "2025-12-01T08:11:21.589Z",
+      "updatedAt": "2025-12-01T08:11:21.589Z",
+      "__v": 0,
+      "usdValue": "0.00",
+      "usdRate": "2840.595972230683",
+      "priceTimestamp": 1764576000
+    }
+  ],
+  "pagination": {
+    "totalItems": 99,
+    "totalPages": 10,
+    "currentPage": 1
+  }
+}
+Click Create failed: locator.click: Target page, context or browser has been closed
+Step 6: Attempting to extract wallet address from network response...
+[DEBUG] Full response keys: assetWalletRes, pagination
+✓ Extracted wallet address from response: 692d529308f7ffcd7e75fb4c
+✓ Wallet address extracted from API: 692d529308f7ffcd7e75fb4c
+Recipients payload:
+{
+  "recipients": [
+    "692d529308f7ffcd7e75fb4c"
+  ],
+  "amounts": [
+    0.000001
+  ],
+  "type": "native"
+}
+  ✓  1 tests/testDemo.spec.js:5:1 › Dev login with manual OTP verification and create asset wallet (55.9s)
+
+  1 passed (56.6s)
