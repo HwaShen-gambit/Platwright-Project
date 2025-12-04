@@ -199,52 +199,7 @@ async function fillOtpInContext(ctx, containerLocator = null) {
 
 async function fillOtpManually(page) { await fillOtpInContext(page); }
 
-// Generate random wallet name like test1234
-function generateRandomWalletName() {
-  const randomNum = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
-  return `test${randomNum}`;
-}
-
-// Click on the created wallet row to open its detail view
-async function clickWalletRow(page, walletName) {
-  console.log(`Searching for wallet row with name: ${walletName}`);
-  try {
-    // Find all table rows from Asset Wallets table
-    const rows = page.locator('table tbody tr');
-    const rowCount = await rows.count();
-    console.log(`Found ${rowCount} wallet rows`);
-    
-    // Iterate through rows to find matching wallet name (case-insensitive)
-    const searchName = walletName.toLowerCase();
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows.nth(i);
-      const rowText = await row.innerText().catch(() => '');
-      const rowLower = rowText.toLowerCase();
-      
-      // Log first few cells of each row for debugging
-      const cells = row.locator('td, th');
-      const firstCell = await cells.nth(0).innerText().catch(() => '');
-      console.log(`Row ${i}: first cell="${firstCell.substring(0, 50)}", includes "${walletName}"=${rowLower.includes(searchName)}`);
-      
-      // Check if this row contains the wallet name
-      if (rowLower.includes(searchName)) {
-        console.log(`✓ Found wallet row with name: ${walletName} at index ${i}`);
-        await row.click().catch(() => row.click({ force: true }));
-        await page.waitForTimeout(1500); // Wait for detail view to load
-        console.log('✓ Wallet row clicked, detail view should be loading...');
-        return true;
-      }
-    }
-    
-    console.log(`✗ Wallet row with name "${walletName}" not found in ${rowCount} rows`);
-    return false;
-  } catch (e) {
-    console.log(`Error clicking wallet row: ${e.message}`);
-    return false;
-  }
-}
-
-// Select and copy wallet address from table
+// Strict selection: find the row whose Addresses column (2nd td) equals the targetLabel, then click copy in that row
 async function selectAndCopyWalletAddress(page, targetLabel = null) {
   try {
     if (page.isClosed && page.isClosed()) { console.log('Page is closed'); return null; }
@@ -258,11 +213,22 @@ async function selectAndCopyWalletAddress(page, targetLabel = null) {
       const tl = targetLabel.trim().toLowerCase();
       for (let i = 0; i < rowCount; i++) {
         const r = allRows.nth(i);
-        const rowFullText = (await r.textContent().catch(() => '')).toLowerCase();
-        if (rowFullText.includes(tl)) {
-          targetRow = r;
-          console.log(`✓ Found row with label "${targetLabel}" at index ${i}`);
-          break;
+        const cells = r.locator('td, th, [role="cell"]');
+        const ccount = await cells.count();
+        let nameText = '';
+        if (ccount > 1) {
+          nameText = (await cells.nth(1).innerText().catch(() => '')).trim().toLowerCase();
+        } else {
+          nameText = (await r.textContent().catch(() => '')).trim().toLowerCase();
+        }
+        console.log(`Row ${i} name-col: "${nameText.slice(0,80)}"`);
+        if (nameText === tl) { targetRow = r; console.log(`✓ Exact match at row ${i}`); break; }
+      }
+      if (!targetRow) {
+        for (let i = 0; i < rowCount; i++) {
+          const r = allRows.nth(i);
+          const txt = (await r.textContent().catch(() => '')).toLowerCase();
+          if (txt.includes(tl)) { targetRow = r; console.log(`✓ Partial match at row ${i}`); break; }
         }
       }
       if (!targetRow) { console.log(`No row contains label "${targetLabel}"`); targetRow = allRows.first(); }
@@ -270,35 +236,197 @@ async function selectAndCopyWalletAddress(page, targetLabel = null) {
       targetRow = allRows.first();
     }
 
-    // Extract address from row text directly via regex - most reliable
+    // Click copy button in the target row
+    const copyBtn = targetRow.locator('button:has(.iconify[class*="i-carbon:copy"]), button[aria-label*="copy"], button:has-text("Copy")').first();
+    if ((await copyBtn.count()) === 0) {
+      const fallback = targetRow.locator('button[type="button"]').last();
+      if ((await fallback.count()) > 0) {
+        try { await fallback.click().catch(() => fallback.click({ force: true })); console.log('Clicked fallback button'); } catch (e) { console.log('Fallback click failed', e.message); }
+      } else { console.log('No copy or fallback button found in row'); }
+    } else {
+      try { await copyBtn.click().catch(() => copyBtn.click({ force: true })); console.log('Clicked copy button'); } catch (e) { console.log('Copy click failed', e.message); }
+    }
+
+    // Extract address from row text as reliable fallback
     const rowText = await targetRow.textContent().catch(() => '');
     const match = rowText && rowText.match(/0x[a-fA-F0-9]{40}/);
-    if (match) { 
-      console.log(`✓ Address extracted from row text: ${match[0]}`); 
-      return match[0]; 
-    }
-    
-    // Fallback: try to click copy button
-    const copyBtn = targetRow.locator('button:has(.iconify[class*="i-carbon:copy"]), button[aria-label*="copy"], button:has-text("Copy")').first();
-    if ((await copyBtn.count()) > 0) {
-      try { 
-        await copyBtn.click().catch(() => copyBtn.click({ force: true })); 
-        console.log('Clicked copy button');
-        await page.waitForTimeout(200);
-      } catch (e) { console.log('Copy click failed', e.message); }
-    }
-    
-    // Try clipboard read after clicking
-    try { 
-      const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => '')); 
-      if (clip && clip.match(/0x[a-fA-F0-9]{40}/)) { 
-        const addr = clip.match(/0x[a-fA-F0-9]{40}/)[0];
-        console.log('Address read from clipboard'); 
-        return addr; 
-      } 
-    } catch (e) {}
-    
+    if (match) { console.log('Address extracted from row text'); return match[0]; }
+    // Try clipboard read
+    try { const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => '')); if (clip) { console.log('Address read from clipboard'); return clip; } } catch (e) {}
     console.log('Could not extract wallet address');
     return null;
   } catch (e) { console.log('selectAndCopyWalletAddress error:', e.message); return null; }
 }
+
+// Generate random wallet name like test1234
+function generateRandomWalletName() {
+  const randomNum = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+  return `test${randomNum}`;
+}
+
+// Click on the created wallet row to open its detail view
+async function clickWalletRow(page, walletName) {
+  console.log(`Searching for wallet row with name: ${walletName}`);
+  try {
+    // Find all table rows
+    const rows = page.locator('table tbody tr');
+    const rowCount = await rows.count();
+    console.log(`Found ${rowCount} wallet rows`);
+    
+    // Iterate through rows to find matching wallet name
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      const rowText = await row.innerText().catch(() => '');
+      console.log(`Row ${i} text: ${rowText.substring(0, 100)}...`);
+      
+      if (rowText.includes(walletName)) {
+        console.log(`✓ Found wallet row with name: ${walletName} at index ${i}`);
+        await row.click().catch(() => row.click({ force: true }));
+        await page.waitForTimeout(1000); // Wait for detail view to load
+        console.log('✓ Wallet row clicked, detail view should be loading...');
+        return true;
+      }
+    }
+    
+    console.log(`✗ Wallet row with name "${walletName}" not found`);
+    return false;
+  } catch (e) {
+    console.log(`Error clicking wallet row: ${e.message}`);
+    return false;
+  }
+}
+
+// Select the first wallet from the table, click copy button, and extract wallet address
+async function selectAndCopyWalletAddress(page, targetLabel = null) {
+  try {
+    if (page.isClosed && page.isClosed()) {
+      console.log('Page is closed, cannot extract wallet address');
+      return null;
+    }
+
+    console.log(`Finding wallet row${targetLabel ? ` with label "${targetLabel}"` : ' (first row)'}...`);
+
+    // Find rows and pick either the row containing targetLabel or the first row
+    const allRows = page.locator('table tbody tr, [role="table"] [role="row"]');
+    const rowCount = await allRows.count();
+    if (rowCount === 0) {
+      console.log('No wallet row found in table');
+      return null;
+    }
+
+    let targetRow = null;
+    if (targetLabel) {
+      const tl = targetLabel.toLowerCase();
+      // Debug: print out all rows and their cell texts to understand structure
+      console.log('Debug: enumerating table rows and cell texts for diagnosis...');
+      for (let ri = 0; ri < rowCount; ri++) {
+        const rr = allRows.nth(ri);
+        const cells = rr.locator('td, th, [role="cell"]');
+        const cc = await cells.count();
+        const texts = [];
+        for (let ci = 0; ci < cc; ci++) {
+          const t = (await cells.nth(ci).innerText().catch(() => '')).trim().replace(/\s+/g, ' ');
+          texts.push(t.slice(0, 200));
+        }
+        const rowPreview = texts.length > 0 ? texts.join(' | ') : ((await rr.textContent().catch(() => '')).trim().slice(0,200));
+        console.log(`Row ${ri}: ${rowPreview}`);
+      }
+      // Prefer exact cell match first (cell text === targetLabel), then fallback to contains
+      for (let i = 0; i < rowCount; i++) {
+        const r = allRows.nth(i);
+        const cells = r.locator('td, th, [role="cell"]');
+        const ccount = await cells.count();
+        for (let j = 0; j < ccount; j++) {
+          const cellText = (await cells.nth(j).innerText().catch(() => '')).trim().toLowerCase();
+          if (cellText === tl) {
+            targetRow = r;
+            console.log(`✓ Exact match: Found row with label "${targetLabel}" at index ${i}, cell ${j}`);
+            break;
+          }
+        }
+        if (targetRow) break;
+      }
+
+      // If exact match not found, try contains (case-insensitive)
+      if (!targetRow) {
+        for (let i = 0; i < rowCount; i++) {
+          const r = allRows.nth(i);
+          const txt = (await r.textContent().catch(() => '')).toLowerCase();
+          if (txt.includes(tl)) {
+            targetRow = r;
+            console.log(`✓ Partial match: Found row with label "${targetLabel}" at index ${i}`);
+            break;
+          }
+        }
+      }
+
+      if (!targetRow) {
+        console.log(`⚠ No row contains label "${targetLabel}", falling back to first row`);
+        targetRow = allRows.first();
+      }
+    } else {
+      targetRow = allRows.first();
+    }
+
+    // Click on the target row to select it
+    await targetRow.click().catch(() => {});
+    await page.waitForTimeout(300);
+
+    // Find the copy button inside the target row (look for iconify copy icon, aria-label, or text)
+    let copyBtn = targetRow.locator('button:has(.iconify[class*="i-carbon:copy"]), button[aria-label*="copy"], button:has-text("Copy")').first();
+    if ((await copyBtn.count()) === 0) {
+      console.log('Copy button not found by icon/text/aria in row, falling back to any button in the row...');
+      const allBtns = targetRow.locator('button[type="button"]');
+      const btnCount = await allBtns.count();
+      console.log(`Found ${btnCount} buttons in row`);
+      if (btnCount > 0) {
+        // Try the last button (often the action/copy)
+        copyBtn = allBtns.last();
+      }
+    }
+
+    if ((await copyBtn.count()) > 0) {
+      try {
+        await copyBtn.click().catch(() => copyBtn.click({ force: true }));
+        console.log('Clicked copy button for target row');
+        await page.waitForTimeout(200);
+      } catch (e) {
+        console.log('Clicking copy button failed:', e.message);
+      }
+    } else {
+      console.log('No copy button found in target row');
+    }
+
+    // Extract wallet address directly from the row's text content
+    const rowText = await targetRow.textContent().catch(() => '');
+    console.log('Wallet row text:', rowText.trim().substring(0, 200));
+
+    // Extract wallet address from row text (usually a hex address starting with 0x)
+    // This is more reliable than clipboard since we bypass permission prompts
+    let walletAddress = '';
+    const match = rowText.match(/0x[a-fA-F0-9]{40}/);
+    if (match) {
+      walletAddress = match[0];
+      console.log('Address extracted from row text');
+    }
+
+    if (walletAddress) {
+      console.log(`✓ Wallet address extracted: ${walletAddress}`);
+      // Return only the address (user requested payload aside)
+            // Prefer exact match in the Addresses column (usually the 2nd td in the row)
+    } else {
+      console.log('Could not extract wallet address');
+      return null;
+    }
+  } catch (e) {
+    console.log('selectAndCopyWalletAddress error:', e.message);
+    return null;
+  }
+}
+ 
+
+              if (nameText === tl) {
+
+ 
+
+
