@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
+let rootInitializationCompleted = false;
+let depositInitializationDone = false;
+let depositWalletInitLabel = null;
+
 test.setTimeout(600000);
 
 test('Dev login with manual OTP verification and create asset wallet', async ({ page, context }) => {
@@ -11,6 +15,10 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
   const ctx = context;
   let activePage = page;
   let dashboardPage = page;
+
+  rootInitializationCompleted = false;
+  depositInitializationDone = false;
+  depositWalletInitLabel = null;
 
   await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -98,6 +106,7 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
 
     // Create Deposit Wallet flow (still on asset wallet page)
     const depositWalletName = `deposit${Math.floor(Math.random() * 9000) + 1000}`;
+    depositWalletInitLabel = depositWalletName;
     console.log(`Step 7.5: Creating Deposit Wallet (${depositWalletName})...`);
     try {
       const createDepositBtn = walletTablePage.locator('button:has-text("Create Deposit Wallet")').first();
@@ -413,7 +422,35 @@ function generateRandomWalletName() {
 }
 
 // Perform the Initialize → Estimate Gas Fee → Initialize → OTP → Initialize steps
-async function runInitializeSequence(page) {
+async function runInitializeSequence(page, options = {}) {
+  const filterLabel = options?.walletLabel ? options.walletLabel.trim().toLowerCase() : null;
+  const findButtonNearStatus = async (statusText, label) => {
+    const statuses = page.locator(`text=${statusText}`);
+    const count = await statuses.count();
+    for (let i = 0; i < count; i++) {
+      const status = statuses.nth(i);
+      const row = status.locator('xpath=ancestor::tr');
+      if ((await row.count()) > 0) {
+        const rowText = (await row.textContent().catch(() => '')).toLowerCase();
+        if (filterLabel && !rowText.includes(filterLabel)) {
+          continue;
+        }
+        const btn = row.locator(`button:has-text("${label}")`).first();
+        if ((await btn.count()) > 0) return btn;
+      }
+      const div = status.locator('xpath=ancestor::div');
+      if ((await div.count()) > 0) {
+        const divText = (await div.textContent().catch(() => '')).toLowerCase();
+        if (filterLabel && !divText.includes(filterLabel)) {
+          continue;
+        }
+        const btn = div.locator(`button:has-text("${label}")`).first();
+        if ((await btn.count()) > 0) return btn;
+      }
+    }
+    return null;
+  };
+
   const findButtonInOverlay = async (label) => {
     const overlaySelectors = ['[role="dialog"]', '[aria-modal="true"]', '.modal', '.chakra-modal'];
     for (const sel of overlaySelectors) {
@@ -424,8 +461,8 @@ async function runInitializeSequence(page) {
   };
 
   const clickButtonStep = async (label, options = {}) => {
-  const { waitForDisappear = true, allowBackground = false } = options;
-    const btn = await findButtonInOverlay(label);
+    const { waitForDisappear = true, allowBackground = false, handle } = options;
+    const btn = handle ?? await findButtonInOverlay(label);
     if ((await btn.count()) === 0) {
       console.log(`⚠ ${label} button not found`);
       return false;
@@ -446,7 +483,12 @@ async function runInitializeSequence(page) {
     }
   };
 
-  if (await clickButtonStep('Initialize')) {
+  const pendingInitBtn = await findButtonNearStatus('Pending initialization', 'Initialize');
+  const initialClicked = pendingInitBtn
+    ? await clickButtonStep('Initialize', { handle: pendingInitBtn })
+    : await clickButtonStep('Initialize');
+
+  if (initialClicked) {
     if (await clickButtonStep('Estimate Gas Fee')) {
       await page.waitForTimeout(1800);
       await clickButtonStep('Initialize', { waitForDisappear: false });
@@ -1476,8 +1518,20 @@ async function ensureTxAndClaimWallet(page, context, walletInfo, sendResults, am
   const expectedClaims = calculateExpectedClaims(sendResults, tokens, address);
   await claimPendingTransactions(targetPage, expectedClaims);
   await returnToAssetWalletTable(targetPage, walletInfo.assetWalletName || walletInfo.label);
-  if (walletInfo.isDeposit) {
-    await runInitializeSequence(targetPage);
+  if (label === 'Root') {
+    await runInitializeSequence(targetPage, { walletLabel: label });
+    rootInitializationCompleted = true;
+    if (depositWalletInitLabel && !depositInitializationDone) {
+      await targetPage.waitForTimeout(2000);
+      await runInitializeSequence(targetPage, { walletLabel: depositWalletInitLabel });
+      depositInitializationDone = true;
+    }
+  } else if (walletInfo.isDeposit && !depositInitializationDone) {
+    if (rootInitializationCompleted) {
+      await targetPage.waitForTimeout(2000);
+    }
+    await runInitializeSequence(targetPage, { walletLabel: walletInfo.label });
+    depositInitializationDone = true;
   }
 }
 
