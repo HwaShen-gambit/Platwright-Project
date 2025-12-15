@@ -1,0 +1,31 @@
+[
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/eth.html",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/assets/TRX.png",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/assets/BNB.png",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/assets/ETH.png",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/assets/POL.png",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/favicon.svg",
+    "status": 200
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/api/eth-transfer",
+    "status": 200,
+    "responseBody": "{\"address\":\"0x44b2b682507c75a0B6129a6CaC518A6098ACEfCC\",\"balance\":\"5.34825894957131499\",\"usdtBalance\":7.893826,\"okkBalance\":35702.179378}"
+  }
+]

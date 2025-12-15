@@ -170,6 +170,7 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
     }
 
     await walletTablePage.waitForTimeout(2000);
+    await clickRefreshIcon(walletTablePage).catch(() => {});
     const depositRow = walletTablePage.locator('table tbody tr', { hasText: depositWalletName }).first();
     if ((await depositRow.count()) > 0) {
       await depositRow.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
@@ -177,6 +178,7 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
     } else {
       console.log(`⚠ Deposit row "${depositWalletName}" not yet visible`);
     }
+    await waitForWalletRowByName(walletTablePage, depositWalletName, 20000);
 
     // Extract Deposit and Cold wallet addresses (still on asset wallet page)
     console.log('Step 8.5: Extracting Deposit and Cold wallet addresses...');
@@ -265,13 +267,13 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
     };
     const amountMap = { OKK: 0.00001, 'Native ETH': 0.0003 };
     const walletLabelMap = {
-      deposit: depositWalletName || 'Deposit'
+      deposit: depositWalletName
     };
     const walletsToProcess = [
       { label: 'Root', address: rootAddress, tokens: ['OKK', 'Native ETH'], assetWalletName: walletName },
       { label: 'Cold', address: coldAddress, tokens: ['OKK', 'Native ETH'], assetWalletName: walletName },
-      { label: walletLabelMap.deposit, address: depositAddress, tokens: ['OKK'], assetWalletName: walletName }
-    ];
+      { label: walletLabelMap.deposit, address: depositAddress, tokens: ['OKK'], assetWalletName: walletName, isDeposit: true }
+    ].filter(w => w.label && w.address);
 
     const basePage = await focusDashboardPage(ctx, dashboardPage);
     for (const w of walletsToProcess) {
@@ -410,6 +412,65 @@ function generateRandomWalletName() {
   return `test${randomNum}`;
 }
 
+// Perform the Initialize → Estimate Gas Fee → Initialize → OTP → Initialize steps
+async function runInitializeSequence(page) {
+  const findButtonInOverlay = async (label) => {
+    const overlaySelectors = ['[role="dialog"]', '[aria-modal="true"]', '.modal', '.chakra-modal'];
+    for (const sel of overlaySelectors) {
+      const dialogBtn = page.locator(`${sel} button:has-text("${label}")`).filter({ has: page.locator(':visible') });
+      if ((await dialogBtn.count()) > 0) return dialogBtn.first();
+    }
+    return page.locator(`button:has-text("${label}")`).filter({ has: page.locator(':visible') }).first();
+  };
+
+  const clickButtonStep = async (label, options = {}) => {
+  const { waitForDisappear = true, allowBackground = false } = options;
+    const btn = await findButtonInOverlay(label);
+    if ((await btn.count()) === 0) {
+      console.log(`⚠ ${label} button not found`);
+      return false;
+    }
+    try {
+      await btn.scrollIntoViewIfNeeded().catch(() => {});
+      await btn.waitFor({ state: 'visible', timeout: 10000 });
+      await btn.click({ force: true });
+      console.log(`✓ Clicked ${label} button`);
+      if (waitForDisappear && !allowBackground) {
+        await btn.waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+      }
+      await page.waitForTimeout(800);
+      return true;
+    } catch (e) {
+      console.log(`⚠ Could not interact with ${label} button`, e.message);
+      return false;
+    }
+  };
+
+  if (await clickButtonStep('Initialize')) {
+    if (await clickButtonStep('Estimate Gas Fee')) {
+      await page.waitForTimeout(1800);
+      await clickButtonStep('Initialize', { waitForDisappear: false });
+      await waitForOtpInputs(page);
+      await fillOtpInContext(page, page.locator('body'));
+      await page.waitForTimeout(800);
+      await clickButtonStep('Initialize');
+    }
+  }
+}
+
+async function waitForOtpInputs(page, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const otpInputs = page.locator('input[name="otp"], input[data-otp], .otp input');
+    if ((await otpInputs.count()) > 0) {
+      return true;
+    }
+    await page.waitForTimeout(500);
+  }
+  console.log('⚠ OTP inputs did not appear in time');
+  return false;
+}
+
 // Click on the created wallet row to open its detail view
 async function clickWalletRow(page, walletName) {
   console.log(`Searching for wallet row with name: ${walletName}`);
@@ -518,6 +579,22 @@ async function selectAndCopyWalletAddress(page, targetLabel = null) {
     console.log('Could not extract wallet address');
     return null;
   } catch (e) { console.log('selectAndCopyWalletAddress error:', e.message); return null; }
+}
+
+// Wait for a wallet row with the provided name to appear in the asset wallet table
+async function waitForWalletRowByName(page, walletName, timeoutMs = 60000) {
+  if (!walletName) return false;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const candidate = page.locator('table tbody tr, [role="row"]', { hasText: walletName });
+    if ((await candidate.count()) > 0) {
+      return true;
+    }
+    await scrollWalletTableToBottom(page, 2, 300);
+    await page.waitForTimeout(500);
+  }
+  console.log(`⚠ Row for wallet "${walletName}" not found within ${timeoutMs}ms`);
+  return false;
 }
 
 // Attempt to POST transfer payload to multiple candidate endpoints on the provided base URL
@@ -1399,6 +1476,9 @@ async function ensureTxAndClaimWallet(page, context, walletInfo, sendResults, am
   const expectedClaims = calculateExpectedClaims(sendResults, tokens, address);
   await claimPendingTransactions(targetPage, expectedClaims);
   await returnToAssetWalletTable(targetPage, walletInfo.assetWalletName || walletInfo.label);
+  if (walletInfo.isDeposit) {
+    await runInitializeSequence(targetPage);
+  }
 }
 
 function calculateExpectedClaims(sendResults, tokens, address) {
