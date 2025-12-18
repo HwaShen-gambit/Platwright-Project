@@ -4,6 +4,8 @@ import fs from 'fs';
 let rootInitializationCompleted = false;
 let depositInitializationDone = false;
 let depositWalletInitLabel = null;
+let depositWalletAddress = null;
+let depositSweepDone = false;
 
 test.setTimeout(600000);
 
@@ -19,6 +21,8 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
   rootInitializationCompleted = false;
   depositInitializationDone = false;
   depositWalletInitLabel = null;
+  depositWalletAddress = null;
+  depositSweepDone = false;
 
   await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -204,7 +208,10 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
         console.log(`⚠ Could not find row for ${depositWalletName}; falling back to "Deposit" label`);
         depositAddress = await selectAndCopyWalletAddress(walletTablePage, 'Deposit');
       }
-      if (depositAddress) console.log(`✓ Deposit wallet address (${depositWalletName ?? 'Deposit'}): ${depositAddress}`);
+      if (depositAddress) {
+        console.log(`✓ Deposit wallet address (${depositWalletName ?? 'Deposit'}): ${depositAddress}`);
+        depositWalletAddress = depositAddress;
+      }
       else console.log('⚠ Could not extract Deposit address');
 
       coldAddress = await selectAndCopyWalletAddress(walletTablePage, 'Cold');
@@ -289,6 +296,13 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
       if (!w.address) { console.log(`Skipping ${w.label} (no address)`); continue; }
       await ensureTxAndClaimWallet(basePage, ctx, w, sendResults, amountMap);
     }
+    await runInitializeSequence(basePage, { walletLabel: 'Root' });
+    if (depositWalletInitLabel) {
+      await runInitializeSequence(basePage, { walletLabel: depositWalletInitLabel });
+    }
+    await refreshAssetWalletPage(basePage);
+    await scrollTransactionList(basePage, 'left', 6, 220);
+    await handleDepositPostInitialization(basePage, amountMap);
   } catch (e) {
     console.log('Step error:', e.message);
   }
@@ -511,6 +525,130 @@ async function waitForOtpInputs(page, timeoutMs = 10000) {
   }
   console.log('⚠ OTP inputs did not appear in time');
   return false;
+}
+
+async function refreshAssetWalletPage(page) {
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
+  } catch (e) {
+    console.log('⚠ Asset wallet page reload failed:', e.message);
+  }
+  await page.waitForTimeout(1200);
+}
+
+async function runDepositSweep(page, label, address, amount) {
+  if (depositSweepDone) return false;
+  if (!label) {
+    console.log('⚠ Missing deposit label; cannot run sweep');
+    return false;
+  }
+  await refreshAssetWalletPage(page);
+  await waitForWalletRowByName(page, label, 20000);
+  let rows = page.locator('table tbody tr, [role="row"]', { hasText: label });
+  if ((await rows.count()) === 0 && address) {
+    rows = page.locator('table tbody tr, [role="row"]', { hasText: address });
+  }
+  const depositRow = rows.first();
+  if ((await depositRow.count()) === 0) {
+    console.log(`⚠ Deposit row ${label} not found for sweep`);
+    return false;
+  }
+  const sweepBtn = depositRow.locator('button:has-text("Sweep")').first();
+  if ((await sweepBtn.count()) === 0) {
+    console.log('⚠ Sweep button not found in deposit row');
+    return false;
+  }
+  await sweepBtn.scrollIntoViewIfNeeded().catch(() => {});
+  await sweepBtn.click({ force: true }).catch(() => sweepBtn.click({ force: true }));
+  await page.waitForTimeout(1200);
+
+  const overlaySelectors = ['[role="dialog"]', '[aria-modal="true"]', '.modal', '.chakra-modal'];
+  const findModalOverlay = async () => {
+    for (const sel of overlaySelectors) {
+      const overlay = page.locator(sel).filter({ has: page.locator(':visible') });
+      if ((await overlay.count()) > 0) return overlay.first();
+    }
+    return page.locator('body');
+  };
+  const clickModalButton = async (text) => {
+    const overlay = await findModalOverlay();
+    const btn = overlay.locator(`button:has-text("${text}")`).first();
+    if ((await btn.count()) === 0) {
+      console.log(`⚠ Modal button ${text} not found`);
+      return false;
+    }
+    await btn.scrollIntoViewIfNeeded().catch(() => {});
+    await btn.click({ force: true });
+    await page.waitForTimeout(900);
+    return true;
+  };
+
+  const overlay = await findModalOverlay();
+  const maxAmountSelector = 'div.text-xs.text-right.text-gray-400.dark\\:text-gray-300.mt-1.mr-1.cursor-pointer:has-text("Max Amount")';
+  const maxAmount = overlay.locator(maxAmountSelector).first();
+  if ((await maxAmount.count()) === 0) {
+    console.log('⚠ Max Amount control not found');
+    return false;
+  }
+  await maxAmount.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  await maxAmount.click({ force: true });
+  const sweepValue = amount !== undefined && amount !== null ? amount.toString() : '';
+  console.log(`✓ Selected Max Amount (expected ${sweepValue || 'auto'})`);
+
+  if (!(await clickModalButton('Next'))) return false;
+  await page.waitForTimeout(2000);
+  if (!(await clickModalButton('Next'))) return false;
+
+  await waitForOtpInputs(page, 20000);
+  const otpOverlay = await findModalOverlay();
+  await fillOtpInContext(page, otpOverlay);
+  await page.waitForTimeout(600);
+
+  if (!(await clickModalButton('Sweep'))) return false;
+  await page.waitForTimeout(1200);
+  await returnToAssetWalletTable(page, label).catch(() => {});
+  depositSweepDone = true;
+  return true;
+}
+
+async function waitForWalletInitializedBadge(page, walletLabel, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const row = page.locator('table tbody tr, [role="row"]', { hasText: walletLabel }).first();
+    if ((await row.count()) > 0) {
+      const badge = row.locator('span[modelvalue="initialized"], span[value="initialized"], span:has-text("initialized")').first();
+      if ((await badge.count()) > 0) {
+        return true;
+      }
+    }
+    await page.waitForTimeout(1000);
+    await refreshAssetWalletPage(page).catch(() => {});
+  }
+  console.log(`⚠ Wallet ${walletLabel} did not reach initialized status within ${timeoutMs}ms`);
+  return false;
+}
+
+async function waitForWalletsInitialized(page, walletLabels, timeoutMs = 90000) {
+  for (const label of walletLabels) {
+    if (label) {
+      await waitForWalletInitializedBadge(page, label, timeoutMs);
+    }
+  }
+}
+
+async function handleDepositPostInitialization(page, amountMap) {
+  if (depositSweepDone) return;
+  if (!depositWalletInitLabel || !depositWalletAddress) {
+    console.log('⚠ Deposit wallet metadata missing; skipping sweep');
+    return;
+  }
+  const sweepAmount = amountMap?.OKK ?? amountMap?.['OKK'];
+  if (sweepAmount == null) {
+    console.log('⚠ No sweep amount provided; skipping sweep');
+    return;
+  }
+  await waitForWalletsInitialized(page, ['Root', depositWalletInitLabel]);
+  await runDepositSweep(page, depositWalletInitLabel, depositWalletAddress, sweepAmount);
 }
 
 // Click on the created wallet row to open its detail view
@@ -1518,21 +1656,6 @@ async function ensureTxAndClaimWallet(page, context, walletInfo, sendResults, am
   const expectedClaims = calculateExpectedClaims(sendResults, tokens, address);
   await claimPendingTransactions(targetPage, expectedClaims);
   await returnToAssetWalletTable(targetPage, walletInfo.assetWalletName || walletInfo.label);
-  if (label === 'Root') {
-    await runInitializeSequence(targetPage, { walletLabel: label });
-    rootInitializationCompleted = true;
-    if (depositWalletInitLabel && !depositInitializationDone) {
-      await targetPage.waitForTimeout(2000);
-      await runInitializeSequence(targetPage, { walletLabel: depositWalletInitLabel });
-      depositInitializationDone = true;
-    }
-  } else if (walletInfo.isDeposit && !depositInitializationDone) {
-    if (rootInitializationCompleted) {
-      await targetPage.waitForTimeout(2000);
-    }
-    await runInitializeSequence(targetPage, { walletLabel: walletInfo.label });
-    depositInitializationDone = true;
-  }
 }
 
 function calculateExpectedClaims(sendResults, tokens, address) {
