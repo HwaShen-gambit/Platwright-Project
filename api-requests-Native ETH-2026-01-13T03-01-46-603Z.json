@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/api/eth-transfer",
+    "method": "GET",
+    "requestBody": "",
+    "contentType": ""
+  },
+  {
+    "url": "https://wallet-transfer-platform.vercel.app/api/eth-transfer",
+    "method": "POST",
+    "requestBody": "{\"recipients\":[\"0xaeF83829E07125De22A56b3E7aEBfB95247B181d\",\"0x7a87f35b3EE2d4D2Fe23cf94E571CDd2d1CF9C98\"],\"amounts\":[0.0003,0.0003],\"type\":\"native\"}",
+    "contentType": "application/json"
+  }
+]
