@@ -4,6 +4,11 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "config": "node tests/config/prompt.js",
+    "config:web": "node tests/config/ui-server.js",
+    "wallet": "npx playwright test tests/wallet-test.spec.js --headed --workers=1",
+    "wallet:headless": "npx playwright test tests/wallet-test.spec.js --workers=1",
+    "test:eth": "npx playwright test tests/testDemo-OKK-ETH.spec.js --headed --workers=1",
     "test": "playwright test tests/testDemo.spec.js --workers=1",
     "test:all": "playwright test",
     "test:debug-transfer": "RUN_DEBUG_TRANSFER=1 playwright test tests/testDemo.spec.js --grep \"Debug transfer UI\" --workers=1 --headed"

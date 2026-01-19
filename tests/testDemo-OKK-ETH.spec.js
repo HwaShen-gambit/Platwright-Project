@@ -5,6 +5,7 @@ let rootInitializationCompleted = false;
 let depositInitializationDone = false;
 let depositWalletInitLabel = null;
 let depositWalletAddress = null;
+let coldWalletAddress = null;
 let sweepedWalletLabels = new Set();
 const ENABLE_TOKEN_SEND = true; // Always enabled
 const RUN_DEBUG_TRANSFER = process.env.RUN_DEBUG_TRANSFER === '1';
@@ -24,6 +25,7 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
   depositInitializationDone = false;
   depositWalletInitLabel = null;
   depositWalletAddress = null;
+  coldWalletAddress = null;
   sweepedWalletLabels = new Set();
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -218,7 +220,10 @@ test('Dev login with manual OTP verification and create asset wallet', async ({ 
       else console.log('⚠ Could not extract Deposit address');
 
       coldAddress = await selectAndCopyWalletAddress(walletTablePage, 'Cold');
-      if (coldAddress) console.log(`✓ Cold wallet address: ${coldAddress}`);
+      if (coldAddress) {
+        console.log(`✓ Cold wallet address: ${coldAddress}`);
+        coldWalletAddress = coldAddress;
+      }
       else console.log('⚠ Could not extract Cold address');
     } catch (e) {
       console.log('Error extracting wallet addresses:', e.message);
@@ -564,17 +569,21 @@ async function refreshAssetWalletPage(page) {
   await page.waitForTimeout(1200);
 }
 
-async function runWalletSweep(page, label, address, amount) {
+async function runWalletSweep(page, label, address, amount, tokenType = 'OKK') {
   if (!label) {
     console.log('⚠ Missing wallet label; cannot run sweep');
     return false;
   }
-  if (sweepedWalletLabels.has(label)) {
-    console.log(`⚠ Sweep already performed for ${label}`);
+  if (sweepedWalletLabels.has(`${label}-${tokenType}`)) {
+    console.log(`⚠ Sweep already performed for ${label} (${tokenType})`);
     return false;
   }
+
+  console.log(`\n🧹 Starting sweep for wallet: ${label} (token: ${tokenType})`);
+  
   await refreshAssetWalletPage(page);
   await waitForWalletRowByName(page, label, 20000);
+  
   let rows = page.locator('table tbody tr, [role="row"]', { hasText: label });
   if ((await rows.count()) === 0 && address) {
     rows = page.locator('table tbody tr, [role="row"]', { hasText: address });
@@ -584,89 +593,581 @@ async function runWalletSweep(page, label, address, amount) {
     console.log(`⚠ Wallet row ${label} not found for sweep`);
     return false;
   }
+  
   await walletRow.scrollIntoViewIfNeeded().catch(() => {});
-  const sweepBtn = walletRow.locator('button:has-text("Sweep")').first();
-  if ((await sweepBtn.count()) === 0) {
-    console.log('⚠ Sweep button not found in wallet row');
+  
+  // Check if wallet is initialized before attempting sweep
+  const rowText = (await walletRow.textContent().catch(() => '')).toLowerCase();
+  if (rowText.includes('pending initialization') || rowText.includes('pending_initialization')) {
+    console.log(`⚠ Wallet ${label} is still pending initialization; cannot sweep yet`);
     return false;
   }
-  await sweepBtn.scrollIntoViewIfNeeded().catch(() => {});
-  await sweepBtn.click({ force: true }).catch(() => sweepBtn.click({ force: true }));
+  
+  const sweepBtn = walletRow.locator('button:has-text("Sweep")').first();
+  if ((await sweepBtn.count()) === 0) {
+    console.log(`⚠ Sweep button not found in wallet row for ${label}`);
+    // Try alternative: look for sweep button with different selectors
+    const altSweepBtn = walletRow.locator('button').filter({ hasText: /sweep/i }).first();
+    if ((await altSweepBtn.count()) === 0) {
+      console.log(`⚠ No sweep button available for ${label} - wallet may need initialization first`);
+      return false;
+    }
+    await altSweepBtn.scrollIntoViewIfNeeded().catch(() => {});
+    await altSweepBtn.click({ force: true }).catch(() => altSweepBtn.click({ force: true }));
+  } else {
+    await sweepBtn.scrollIntoViewIfNeeded().catch(() => {});
+    await sweepBtn.click({ force: true }).catch(() => sweepBtn.click({ force: true }));
+  }
+  
+  console.log(`✓ Sweep button clicked for ${label}`);
   await page.waitForTimeout(1600);
 
   const overlay = await findVisibleOverlay(page);
-  const maxAmountSelector = 'div.text-xs.text-right.text-gray-400.dark\\:text-gray-300.mt-1.mr-1.cursor-pointer:has-text("Max Amount")';
-  const maxAmount = overlay.locator(maxAmountSelector).first();
-  if ((await maxAmount.count()) === 0) {
-    console.log('⚠ Max Amount control not found');
+  
+  // Select token type in sweep modal if available
+  try {
+    const tokenSelector = overlay.locator(`[role="option"]:has-text("${tokenType}"), li:has-text("${tokenType}"), button:has-text("${tokenType}")`).first();
+    if ((await tokenSelector.count()) > 0) {
+      await tokenSelector.click({ force: true }).catch(() => {});
+      console.log(`✓ Selected token type: ${tokenType}`);
+      await page.waitForTimeout(500);
+    }
+  } catch (e) {
+    console.log(`⚠ Could not select token type ${tokenType}:`, e.message);
+  }
+  
+  // Try multiple selectors for Max Amount control
+  const maxAmountSelectors = [
+    'div.text-xs.text-right.text-gray-400.dark\\:text-gray-300.mt-1.mr-1.cursor-pointer:has-text("Max Amount")',
+    'text=Max Amount',
+    'button:has-text("Max")',
+    '[class*="max"]:has-text("Max")',
+    'span:has-text("Max Amount")'
+  ];
+  
+  let maxAmountClicked = false;
+  for (const selector of maxAmountSelectors) {
+    const maxAmount = overlay.locator(selector).first();
+    if ((await maxAmount.count()) > 0) {
+      try {
+        await maxAmount.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        await maxAmount.click({ force: true });
+        console.log(`✓ Selected Max Amount using selector: ${selector.substring(0, 50)}...`);
+        maxAmountClicked = true;
+        break;
+      } catch (e) {
+        console.log(`⚠ Failed with selector ${selector.substring(0, 30)}:`, e.message);
+      }
+    }
+  }
+  
+  if (!maxAmountClicked) {
+    // Try to fill amount input directly as fallback
+    const amountInput = overlay.locator('input[type="number"], input[placeholder*="amount"], input[name="amount"]').first();
+    if ((await amountInput.count()) > 0 && amount !== undefined) {
+      await amountInput.fill(amount.toString()).catch(() => {});
+      console.log(`✓ Filled amount input directly: ${amount}`);
+    } else {
+      console.log('⚠ Max Amount control not found and no amount input available');
+      // Try to close the modal and return
+      await clickOverlayButton(page, 'Cancel').catch(() => {});
+      await clickOverlayButton(page, 'Close').catch(() => {});
+      return false;
+    }
+  }
+  
+  const sweepValue = amount !== undefined && amount !== null ? amount.toString() : '';
+  console.log(`✓ Sweep amount set (expected ${sweepValue || 'max'})`);
+
+  // Step through the sweep modal flow
+  if (!(await clickOverlayButton(page, 'Next'))) {
+    console.log('⚠ First Next button not found');
     return false;
   }
-  await maxAmount.waitFor({ state: 'visible', timeout: 12000 }).catch(() => {});
-  await page.waitForTimeout(800);
-  await maxAmount.click({ force: true });
-  const sweepValue = amount !== undefined && amount !== null ? amount.toString() : '';
-  console.log(`✓ Selected Max Amount (expected ${sweepValue || 'auto'})`);
-
-  if (!(await clickOverlayButton(page, 'Next'))) return false;
   await page.waitForTimeout(2000);
-  if (!(await clickOverlayButton(page, 'Next'))) return false;
+  
+  if (!(await clickOverlayButton(page, 'Next'))) {
+    console.log('⚠ Second Next button not found, trying to proceed anyway');
+  }
+  await page.waitForTimeout(1000);
 
+  // Wait for and fill OTP
   await waitForOtpInputs(page, 20000);
   const otpOverlay = await findVisibleOverlay(page);
   await fillOtpInContext(page, otpOverlay);
   await page.waitForTimeout(600);
 
-  if (!(await clickOverlayButton(page, 'Sweep'))) return false;
+  // Click the Sweep confirmation button
+  if (!(await clickOverlayButton(page, 'Sweep'))) {
+    // Try alternative button labels
+    if (!(await clickOverlayButton(page, 'Confirm'))) {
+      console.log('⚠ Sweep/Confirm button not found');
+      return false;
+    }
+  }
+  
+  console.log(`✓ Sweep initiated for ${label} (${tokenType})`);
+  await page.waitForTimeout(2000);
+  
+  // Wait for sweep transaction to be submitted
+  const sweepSuccess = await waitForSweepCompletion(page, 30000);
+  if (sweepSuccess) {
+    console.log(`✓ Sweep completed successfully for ${label} (${tokenType})`);
+  } else {
+    console.log(`⚠ Sweep may still be processing for ${label} (${tokenType})`);
+  }
+  
   await page.waitForTimeout(1200);
   await returnToAssetWalletTable(page, label).catch(() => {});
-  sweepedWalletLabels.add(label);
+  sweepedWalletLabels.add(`${label}-${tokenType}`);
   return true;
+}
+
+// Cold Wallet Sweep - specific flow for cold wallet with "Sweep cold to root wallet" button
+async function runColdWalletSweep(page, address, amount, tokenType = 'OKK') {
+  const label = 'Cold';
+  
+  if (sweepedWalletLabels.has(`${label}-${tokenType}`)) {
+    console.log(`⚠ Sweep already performed for ${label} (${tokenType})`);
+    return false;
+  }
+
+  console.log(`\n🧹 Starting COLD wallet sweep (token: ${tokenType})`);
+  console.log('Cold wallet sweep uses specific flow: Sweep → Max Amount → Next → Next → 2FA → Sweep cold to root wallet');
+  
+  // Step 0: Refresh and find the cold wallet row
+  await refreshAssetWalletPage(page);
+  await waitForWalletRowByName(page, label, 20000);
+  
+  let rows = page.locator('table tbody tr, [role="row"]', { hasText: label });
+  if ((await rows.count()) === 0 && address) {
+    rows = page.locator('table tbody tr, [role="row"]', { hasText: address });
+  }
+  const walletRow = rows.first();
+  if ((await walletRow.count()) === 0) {
+    console.log(`⚠ Cold wallet row not found for sweep`);
+    return false;
+  }
+  
+  await walletRow.scrollIntoViewIfNeeded().catch(() => {});
+  
+  // Check if wallet is initialized before attempting sweep
+  const rowText = (await walletRow.textContent().catch(() => '')).toLowerCase();
+  if (rowText.includes('pending initialization') || rowText.includes('pending_initialization')) {
+    console.log(`⚠ Cold wallet is still pending initialization; cannot sweep yet`);
+    return false;
+  }
+
+  // Step 1: Click "Sweep" button for cold wallet
+  console.log('\n📋 Cold Sweep Step 1: Clicking Sweep button...');
+  const sweepBtn = walletRow.locator('button:has-text("Sweep")').first();
+  if ((await sweepBtn.count()) === 0) {
+    const altSweepBtn = walletRow.locator('button').filter({ hasText: /sweep/i }).first();
+    if ((await altSweepBtn.count()) === 0) {
+      console.log(`⚠ No sweep button available for Cold wallet`);
+      return false;
+    }
+    await altSweepBtn.scrollIntoViewIfNeeded().catch(() => {});
+    await altSweepBtn.click({ force: true }).catch(() => altSweepBtn.click({ force: true }));
+  } else {
+    await sweepBtn.scrollIntoViewIfNeeded().catch(() => {});
+    await sweepBtn.click({ force: true }).catch(() => sweepBtn.click({ force: true }));
+  }
+  console.log('✓ Sweep button clicked for Cold wallet');
+  
+  // Wait for modal to fully appear
+  await page.waitForTimeout(2000);
+  let overlay = await findVisibleOverlay(page);
+  await overlay.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(500);
+
+  // Step 2: Click on Max Amount
+  console.log('\n📋 Cold Sweep Step 2: Clicking Max Amount...');
+  const maxAmountSelectors = [
+    'div.text-xs.text-right.text-gray-400.dark\\:text-gray-300.mt-1.mr-1.cursor-pointer:has-text("Max Amount")',
+    'text=Max Amount',
+    'button:has-text("Max")',
+    '[class*="max"]:has-text("Max")',
+    'span:has-text("Max Amount")',
+    'div:has-text("Max Amount")'
+  ];
+  
+  let maxAmountClicked = false;
+  overlay = await findVisibleOverlay(page);
+  for (const selector of maxAmountSelectors) {
+    const maxAmount = overlay.locator(selector).first();
+    if ((await maxAmount.count()) > 0) {
+      try {
+        await maxAmount.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        await maxAmount.click({ force: true });
+        console.log(`✓ Max Amount clicked`);
+        maxAmountClicked = true;
+        break;
+      } catch (e) {
+        console.log(`⚠ Failed with selector ${selector.substring(0, 30)}:`, e.message);
+      }
+    }
+  }
+  
+  if (!maxAmountClicked) {
+    // Try to fill amount input directly as fallback
+    const amountInput = overlay.locator('input[type="number"], input[placeholder*="amount"], input[name="amount"]').first();
+    if ((await amountInput.count()) > 0 && amount !== undefined) {
+      await amountInput.fill(amount.toString()).catch(() => {});
+      console.log(`✓ Filled amount input directly: ${amount}`);
+    } else {
+      console.log('⚠ Max Amount control not found');
+      await clickOverlayButton(page, 'Cancel').catch(() => {});
+      await clickOverlayButton(page, 'Close').catch(() => {});
+      return false;
+    }
+  }
+  
+  // Wait for UI to update after max amount selection
+  await page.waitForTimeout(1500);
+
+  // Step 3: Click first "Next" button
+  console.log('\n📋 Cold Sweep Step 3: Clicking first Next button...');
+  overlay = await findVisibleOverlay(page);
+  const nextBtn1 = overlay.locator('button:has-text("Next")').first();
+  await nextBtn1.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  if ((await nextBtn1.count()) === 0) {
+    console.log('⚠ First Next button not found');
+    return false;
+  }
+  await nextBtn1.click({ force: true });
+  console.log('✓ First Next button clicked');
+  
+  // Wait for next step/screen to appear
+  await page.waitForTimeout(2000);
+  
+  // Step 4: Click second "Next" button
+  console.log('\n📋 Cold Sweep Step 4: Clicking second Next button...');
+  overlay = await findVisibleOverlay(page);
+  const nextBtn2 = overlay.locator('button:has-text("Next")').first();
+  await nextBtn2.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  if ((await nextBtn2.count()) === 0) {
+    console.log('⚠ Second Next button not found, trying to proceed anyway');
+  } else {
+    await nextBtn2.click({ force: true });
+    console.log('✓ Second Next button clicked');
+  }
+  
+  // Wait for OTP screen to appear
+  await page.waitForTimeout(2000);
+
+  // Step 5: Input 2FA
+  console.log('\n📋 Cold Sweep Step 5: Entering 2FA...');
+  const otpAppeared = await waitForOtpInputs(page, 20000);
+  if (!otpAppeared) {
+    console.log('⚠ OTP inputs did not appear');
+    return false;
+  }
+  overlay = await findVisibleOverlay(page);
+  await fillOtpInContext(page, overlay);
+  console.log('✓ 2FA entered');
+  
+  // Wait for OTP to be validated and button to become available
+  await page.waitForTimeout(1500);
+
+  // Step 6: Click "Sweep cold to root wallet" button
+  console.log('\n📋 Cold Sweep Step 6: Clicking "Sweep cold to root wallet" button...');
+  overlay = await findVisibleOverlay(page);
+  
+  // Try multiple selectors for the cold sweep button
+  const coldSweepButtonSelectors = [
+    'button:has-text("Sweep cold to root wallet")',
+    'button:has-text("Sweep cold")',
+    'button:has-text("sweep cold to root")',
+    'button:has-text("Sweep to root")',
+    'button:has-text("Sweep")'
+  ];
+  
+  let sweepConfirmClicked = false;
+  for (const selector of coldSweepButtonSelectors) {
+    const confirmBtn = overlay.locator(selector).first();
+    if ((await confirmBtn.count()) > 0) {
+      try {
+        await confirmBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        await confirmBtn.click({ force: true });
+        console.log(`✓ Clicked "${selector.replace('button:has-text("', '').replace('")', '')}"`);
+        sweepConfirmClicked = true;
+        break;
+      } catch (e) {
+        console.log(`⚠ Failed to click ${selector}:`, e.message);
+      }
+    }
+  }
+  
+  if (!sweepConfirmClicked) {
+    // Fallback: try Confirm button
+    if (await clickOverlayButton(page, 'Confirm')) {
+      console.log('✓ Clicked Confirm button as fallback');
+      sweepConfirmClicked = true;
+    } else {
+      console.log('⚠ Could not find sweep confirmation button for cold wallet');
+      return false;
+    }
+  }
+  
+  console.log('✓ Cold wallet sweep initiated');
+  await page.waitForTimeout(2000);
+  
+  // Wait for sweep transaction to be submitted
+  const sweepSuccess = await waitForSweepCompletion(page, 30000);
+  if (sweepSuccess) {
+    console.log('✓ Cold wallet sweep completed successfully');
+  } else {
+    console.log('⚠ Cold wallet sweep may still be processing');
+  }
+  
+  await page.waitForTimeout(1200);
+  await returnToAssetWalletTable(page, label).catch(() => {});
+  sweepedWalletLabels.add(`${label}-${tokenType}`);
+  return true;
+}
+
+// Wait for sweep transaction to complete or show success indicator
+async function waitForSweepCompletion(page, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  const successIndicators = [
+    'text=Success',
+    'text=Sweep initiated',
+    'text=Transaction submitted',
+    'text=completed',
+    '.toast-success',
+    '[class*="success"]'
+  ];
+  
+  while (Date.now() < deadline) {
+    for (const indicator of successIndicators) {
+      const el = page.locator(indicator).first();
+      if ((await el.count()) > 0 && (await el.isVisible().catch(() => false))) {
+        return true;
+      }
+    }
+    
+    // Check if modal closed (indicating completion)
+    const overlay = await findVisibleOverlay(page);
+    const isBody = await overlay.evaluate(el => el.tagName.toLowerCase() === 'body').catch(() => true);
+    if (isBody) {
+      // Modal closed, likely success
+      return true;
+    }
+    
+    await page.waitForTimeout(1000);
+  }
+  return false;
 }
 
 async function waitForWalletInitializedBadge(page, walletLabel, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
+  let refreshCount = 0;
+  const maxRefreshes = Math.floor(timeoutMs / 10000); // Refresh every ~10 seconds
+  
+  console.log(`⏳ Waiting for wallet "${walletLabel}" to be initialized (timeout: ${timeoutMs}ms)...`);
+  
   while (Date.now() < deadline) {
     const row = page.locator('table tbody tr, [role="row"]', { hasText: walletLabel }).first();
     if ((await row.count()) > 0) {
-      const badge = row.locator('span[modelvalue="initialized"], span[value="initialized"], span:has-text("initialized")').first();
-      if ((await badge.count()) > 0) {
+      const rowText = (await row.textContent().catch(() => '')).toLowerCase();
+      
+      // Check for initialized status indicators
+      const isInitialized = 
+        rowText.includes('initialized') && !rowText.includes('pending') ||
+        rowText.includes('active') ||
+        rowText.includes('ready');
+      
+      // Check for pending initialization
+      const isPending = 
+        rowText.includes('pending initialization') ||
+        rowText.includes('pending_initialization') ||
+        rowText.includes('initializing');
+      
+      if (isInitialized && !isPending) {
+        console.log(`✓ Wallet "${walletLabel}" is initialized`);
         return true;
       }
+      
+      // Also check for specific badge elements
+      const initializedBadge = row.locator('span[modelvalue="initialized"], span[value="initialized"], span:has-text("initialized")').first();
+      if ((await initializedBadge.count()) > 0) {
+        const badgeText = (await initializedBadge.textContent().catch(() => '')).toLowerCase();
+        if (!badgeText.includes('pending')) {
+          console.log(`✓ Wallet "${walletLabel}" has initialized badge`);
+          return true;
+        }
+      }
     }
-    await page.waitForTimeout(1000);
-    await refreshAssetWalletPage(page).catch(() => {});
+    
+    await page.waitForTimeout(2000);
+    
+    // Periodically refresh the page to get updated status
+    if (refreshCount < maxRefreshes && (Date.now() - deadline + timeoutMs) % 10000 < 2000) {
+      await refreshAssetWalletPage(page).catch(() => {});
+      refreshCount++;
+      console.log(`↻ Refreshed page while waiting for ${walletLabel} to initialize (${refreshCount}/${maxRefreshes})`);
+    }
   }
-  console.log(`⚠ Wallet ${walletLabel} did not reach initialized status within ${timeoutMs}ms`);
+  
+  console.log(`⚠ Wallet "${walletLabel}" did not reach initialized status within ${timeoutMs}ms`);
   return false;
 }
 
 async function waitForWalletsInitialized(page, walletLabels, timeoutMs = 90000) {
+  console.log(`\n⏳ Waiting for ${walletLabels.filter(l => l).length} wallet(s) to be initialized...`);
+  const results = {};
+  
   for (const label of walletLabels) {
     if (label) {
-      await waitForWalletInitializedBadge(page, label, timeoutMs);
+      results[label] = await waitForWalletInitializedBadge(page, label, timeoutMs);
     }
   }
+  
+  const allInitialized = Object.values(results).every(r => r === true);
+  const initializedCount = Object.values(results).filter(r => r === true).length;
+  const totalCount = Object.keys(results).length;
+  
+  console.log(`\n📊 Initialization Status: ${initializedCount}/${totalCount} wallets initialized`);
+  for (const [label, status] of Object.entries(results)) {
+    console.log(`   ${status ? '✓' : '⚠'} ${label}: ${status ? 'Initialized' : 'Not initialized'}`);
+  }
+  
+  return allInitialized;
 }
 
 async function handlePostInitializationSweeps(page, amountMap, rootAddress) {
-  if (!depositWalletInitLabel && !rootAddress) {
+  console.log('\n====== POST-INITIALIZATION SWEEP PROCESS (OKK ONLY) ======');
+  
+  if (!depositWalletInitLabel && !rootAddress && !coldWalletAddress) {
     console.log('⚠ Wallet metadata missing; skipping sweep');
     return;
   }
-  const sweepAmount = amountMap?.OKK ?? amountMap?.['OKK'];
-  if (sweepAmount == null) {
-    console.log('⚠ No sweep amount provided; skipping sweep');
+  
+  const sweepAmountOKK = amountMap?.OKK ?? amountMap?.['OKK'];
+  
+  if (sweepAmountOKK == null) {
+    console.log('⚠ No OKK sweep amount provided; skipping sweep');
     return;
   }
-  await waitForWalletsInitialized(page, ['Root', depositWalletInitLabel]);
-  const tasks = [];
+
+  // Wait for wallets to be fully initialized before sweeping
+  console.log('\n📋 Step 1: Waiting for wallets to be initialized...');
+  const walletsToCheck = [];
+  if (depositWalletInitLabel) walletsToCheck.push(depositWalletInitLabel);
+  walletsToCheck.push('Root');
+  walletsToCheck.push('Cold');
+  
+  await waitForWalletsInitialized(page, walletsToCheck, 120000);
+  console.log('✓ Wallets initialization check complete');
+  
+  // Refresh the page to get the latest wallet states
+  await refreshAssetWalletPage(page);
+  await page.waitForTimeout(2000);
+
+  // Sweep Deposit Wallet (OKK only)
+  console.log('\n📋 Step 2: Processing Deposit Wallet Sweep (OKK)...');
   if (depositWalletInitLabel && depositWalletAddress) {
-    tasks.push(runWalletSweep(page, depositWalletInitLabel, depositWalletAddress, sweepAmount));
+    console.log(`Processing deposit wallet: ${depositWalletInitLabel}`);
+    
+    const depositSweepResult = await runWalletSweep(
+      page, 
+      depositWalletInitLabel, 
+      depositWalletAddress, 
+      sweepAmountOKK,
+      'OKK'
+    );
+    if (depositSweepResult) {
+      console.log(`✓ Deposit wallet ${depositWalletInitLabel} OKK sweep completed`);
+    } else {
+      console.log(`⚠ Deposit wallet ${depositWalletInitLabel} OKK sweep may have failed`);
+    }
+    await page.waitForTimeout(2000);
+  } else {
+    console.log('⚠ Deposit wallet info not available; skipping deposit sweep');
   }
+
+  // Sweep Root Wallet (OKK only)
+  console.log('\n📋 Step 3: Processing Root Wallet Sweep (OKK)...');
   if (rootAddress) {
-    tasks.push(runWalletSweep(page, 'Root', rootAddress, sweepAmount));
+    console.log(`Processing root wallet with address: ${rootAddress}`);
+    
+    const rootOkkSweepResult = await runWalletSweep(
+      page, 
+      'Root', 
+      rootAddress, 
+      sweepAmountOKK,
+      'OKK'
+    );
+    if (rootOkkSweepResult) {
+      console.log('✓ Root wallet OKK sweep completed');
+    } else {
+      console.log('⚠ Root wallet OKK sweep may have failed');
+    }
+    await page.waitForTimeout(2000);
+  } else {
+    console.log('⚠ Root wallet address not available; skipping root sweep');
   }
-  await Promise.all(tasks);
+
+  // Sweep Cold Wallet (OKK only) - uses specific cold wallet sweep flow
+  console.log('\n📋 Step 4: Processing Cold Wallet Sweep (OKK)...');
+  if (coldWalletAddress) {
+    console.log(`Processing cold wallet with address: ${coldWalletAddress}`);
+    
+    // Use dedicated cold wallet sweep function with specific flow
+    const coldOkkSweepResult = await runColdWalletSweep(
+      page, 
+      coldWalletAddress, 
+      sweepAmountOKK,
+      'OKK'
+    );
+    if (coldOkkSweepResult) {
+      console.log('✓ Cold wallet OKK sweep completed');
+    } else {
+      console.log('⚠ Cold wallet OKK sweep may have failed');
+    }
+    await page.waitForTimeout(2000);
+  } else {
+    console.log('⚠ Cold wallet address not available; skipping cold sweep');
+  }
+
+  // Verify sweep status
+  console.log('\n📋 Step 5: Verifying sweep completion...');
+  await refreshAssetWalletPage(page);
+  await verifySweepStatus(page, depositWalletInitLabel, 'Root', 'Cold');
+  
+  console.log('\n====== SWEEP PROCESS COMPLETE ======\n');
+}
+
+// Verify the sweep status for specified wallets
+async function verifySweepStatus(page, ...walletLabels) {
+  for (const label of walletLabels) {
+    if (!label) continue;
+    
+    try {
+      const row = page.locator('table tbody tr, [role="row"]', { hasText: label }).first();
+      if ((await row.count()) === 0) {
+        console.log(`⚠ Cannot verify sweep status - wallet ${label} not found in table`);
+        continue;
+      }
+      
+      const rowText = await row.textContent().catch(() => '');
+      
+      // Check for sweep-related statuses
+      if (rowText.toLowerCase().includes('sweep pending') || rowText.toLowerCase().includes('sweeping')) {
+        console.log(`⏳ Wallet ${label}: Sweep in progress`);
+      } else if (rowText.toLowerCase().includes('sweep complete') || rowText.toLowerCase().includes('swept')) {
+        console.log(`✓ Wallet ${label}: Sweep completed`);
+      } else {
+        console.log(`ℹ️ Wallet ${label}: Status unclear from row text`);
+      }
+    } catch (e) {
+      console.log(`⚠ Error verifying sweep status for ${label}:`, e.message);
+    }
+  }
 }
 
 // Click on the created wallet row to open its detail view
