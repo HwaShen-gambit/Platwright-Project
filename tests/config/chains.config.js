@@ -50,7 +50,7 @@ export const CHAIN_CONFIGS = {
       {
         tokenType: 'Native MATIC',
         radioLabel: 'Native MATIC',
-        amount: 0.003,
+        amount: 0.006,
         targets: ['root', 'cold']
       }
     ],
@@ -60,9 +60,9 @@ export const CHAIN_CONFIGS = {
 
   'TRX_TEST': {
     id: 'TRX_TEST',
-    name: 'Tether USD_Tron Shasta (TRX_TEST)',
+    name: 'Tether USD _Tron Shasta_ (TRX_TEST)',
     displayName: 'USDT-TRX Shasta',
-    assetName: 'Tether USD',
+    assetName: 'USDT',
     assetSearchText: 'Tether USD',
     transferUrl: 'https://wallet-transfer-platform.vercel.app/index.html',
     transfers: [
@@ -75,7 +75,7 @@ export const CHAIN_CONFIGS = {
       {
         tokenType: 'Native TRX',
         radioLabel: 'native TRX',
-        amount: 5,
+        amount: 12,
         targets: ['root', 'deposit', 'cold']
       }
     ],

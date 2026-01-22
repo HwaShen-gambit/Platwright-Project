@@ -21,7 +21,7 @@
     {
       "tokenType": "Native MATIC",
       "radioLabel": "Native MATIC",
-      "amount": 0.003,
+      "amount": 0.006,
       "targets": [
         "root",
         "cold"
@@ -30,5 +30,5 @@
   ],
   "sweepToken": "OKK",
   "sweepAmount": 0.01,
-  "timestamp": "2026-01-19T09:22:35.734Z"
+  "timestamp": "2026-01-22T09:19:35.515Z"
 }

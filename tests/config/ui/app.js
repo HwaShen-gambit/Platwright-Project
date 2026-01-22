@@ -7,6 +7,7 @@ const logEl = $('log');
 
 const emailEl = $('email');
 const passwordEl = $('password');
+const passwordToggleEl = $('passwordToggle');
 const baseUrlEl = $('baseUrl');
 const chainIdEl = $('chainId');
 const headedEl = $('headed');
@@ -23,6 +24,22 @@ const configPathEl = $('configPath');
 
 let eventSource;
 let lastRunState = null;
+const sessionPasswordKey = 'walletTestPassword';
+
+function setPasswordVisibility(isVisible) {
+  if (!passwordToggleEl) return;
+  passwordEl.type = isVisible ? 'text' : 'password';
+  passwordToggleEl.classList.toggle('is-visible', isVisible);
+  const label = isVisible ? 'Hide password' : 'Show password';
+  passwordToggleEl.setAttribute('aria-label', label);
+  passwordToggleEl.setAttribute('title', label);
+}
+
+function syncPasswordSession() {
+  const value = passwordEl.value;
+  if (value) sessionStorage.setItem(sessionPasswordKey, value);
+  else sessionStorage.removeItem(sessionPasswordKey);
+}
 
 function setPill(pillEl, text, kind) {
   pillEl.textContent = text;
@@ -81,6 +98,10 @@ async function loadConfig() {
     baseUrlEl.value = data.config.baseUrl || '';
     if (data.config.chainId) chainIdEl.value = data.config.chainId;
   }
+  const sessionPassword = sessionStorage.getItem(sessionPasswordKey);
+  if (sessionPassword) {
+    passwordEl.value = sessionPassword;
+  }
   configPathEl.textContent = data?.configPath ? `Config: ${data.configPath}` : '';
 }
 
@@ -112,7 +133,7 @@ async function runTest() {
   const workers = parseInt(workersEl.value, 10) || 1;
   const resp = await apiPost('/api/run', { headed, workers, password });
   appendLog(`[RUN] Started: ${resp.runId}`);
-  passwordEl.value = '';
+  syncPasswordSession();
 }
 
 async function testConnectivity() {
@@ -230,6 +251,17 @@ clearLogsBtn.addEventListener('click', () => {
   clearLogs();
 });
 
+if (passwordToggleEl) {
+  passwordToggleEl.addEventListener('click', () => {
+    const isVisible = passwordEl.type === 'password';
+    setPasswordVisibility(isVisible);
+  });
+}
+
+passwordEl.addEventListener('input', () => {
+  syncPasswordSession();
+});
+
 testConnBtn.addEventListener('click', async () => {
   try {
     await testConnectivity();
@@ -244,6 +276,7 @@ testConnBtn.addEventListener('click', async () => {
     setPill(runPill, 'Run: idle');
     setPill(connPill, 'Connectivity: idle');
     testConnBtn.textContent = 'Test Connectivity';
+    setPasswordVisibility(false);
     connectEvents();
     await loadChains();
     await loadConfig();

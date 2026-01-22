@@ -128,25 +128,57 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
     console.log(`Step 4: Creating Asset Wallet (${CONFIG.assetName})...`);
     await detectAndClickCreateAssetWallet(page);
     const modalCtx = await waitForCreateAssetModal(page);
-    const walletName = await handleCreateAssetModal(modalCtx, CONFIG.assetSearchText);
+    const walletName = await handleCreateAssetModal(modalCtx, {
+      assetName: CONFIG.assetName,
+      chainText: CONFIG.chainName
+    });
     await page.waitForTimeout(1500);
 
     const walletTablePage = page;
 
-    // Click first wallet row to load table data
-    const firstWalletRow = walletTablePage.locator('table tbody tr').first();
-    if ((await firstWalletRow.count()) > 0) {
-      await firstWalletRow.scrollIntoViewIfNeeded().catch(() => {});
-      await firstWalletRow.click({ force: true }).catch(() => {});
-      await walletTablePage.waitForTimeout(1500);
-      console.log('✓ First wallet row clicked');
+    // Click the newly created asset wallet row to enter the wallet detail view
+    console.log(`Clicking on asset wallet "${walletName}" to enter detail view...`);
+    const assetWalletRow = walletTablePage.locator('table tbody tr', { hasText: walletName }).first();
+    if ((await assetWalletRow.count()) > 0) {
+      await assetWalletRow.scrollIntoViewIfNeeded().catch(() => {});
+      await assetWalletRow.click({ force: true }).catch(() => {});
+      await walletTablePage.waitForTimeout(2000);
+      console.log(`✓ Asset wallet "${walletName}" clicked`);
+    } else {
+      // Fallback: click the first row
+      const firstRow = walletTablePage.locator('table tbody tr').first();
+      if ((await firstRow.count()) > 0) {
+        await firstRow.click({ force: true }).catch(() => {});
+        await walletTablePage.waitForTimeout(2000);
+        console.log('✓ First wallet row clicked (fallback)');
+      }
     }
 
-    // Step 5: Extract Root address
+    console.log('Waiting for Root wallet row to appear...');
+    await refreshAssetWalletPage(walletTablePage).catch(() => {});
+    const rootRowReady = await waitForWalletRowByName(walletTablePage, 'Root', 90000);
+    if (!rootRowReady) {
+      console.log('⚠ Root wallet row not detected after creation; stopping.');
+      return;
+    }
+
+    // Step 5: Extract Root address with retry loop
     console.log('Step 5: Extract Root wallet address...');
-    const rootAddress = await selectAndCopyWalletAddress(walletTablePage, 'Root');
+    let rootAddress = null;
+    const maxRootRetries = 10;
+    for (let attempt = 1; attempt <= maxRootRetries; attempt++) {
+      console.log(`Attempt ${attempt}/${maxRootRetries} to find Root wallet...`);
+      rootAddress = await selectAndCopyWalletAddress(walletTablePage, 'Root');
+      if (rootAddress) {
+        break;
+      }
+      // Refresh and wait before next attempt
+      await clickRefreshIcon(walletTablePage).catch(() => {});
+      await walletTablePage.waitForTimeout(3000);
+      await scrollWalletTableToBottom(walletTablePage, 2, 300);
+    }
     if (!rootAddress) {
-      console.log('⚠ Failed to extract Root address; stopping.');
+      console.log('⚠ Failed to extract Root address after retries; stopping.');
       return;
     }
     console.log(`✓ Root wallet address: ${rootAddress}`);
@@ -159,6 +191,13 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
 
     await walletTablePage.waitForTimeout(2000);
     await clickRefreshIcon(walletTablePage).catch(() => {});
+    const depositRow = walletTablePage.locator('table tbody tr', { hasText: depositWalletName }).first();
+    if ((await depositRow.count()) > 0) {
+      await depositRow.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+      console.log(`✓ Deposit row "${depositWalletName}" is visible`);
+    } else {
+      console.log(`⚠ Deposit row "${depositWalletName}" not yet visible`);
+    }
     await waitForWalletRowByName(walletTablePage, depositWalletName, 20000);
 
     // Step 7: Extract Deposit and Cold wallet addresses
@@ -166,6 +205,7 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
     let depositAddress = null;
     let coldAddress = null;
     try {
+      // Extract deposit address - try the specific deposit name first
       depositAddress = await selectAndCopyWalletAddress(walletTablePage, depositWalletName);
       if (depositAddress && rootAddress && depositAddress.toLowerCase() === rootAddress.toLowerCase()) {
         console.log('⚠ Deposit address matches Root; waiting briefly before re-reading');
@@ -183,12 +223,25 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
         console.log('⚠ Could not extract Deposit address');
       }
 
+      // Extract cold address
       coldAddress = await selectAndCopyWalletAddress(walletTablePage, 'Cold');
       if (coldAddress) {
         console.log(`✓ Cold wallet address: ${coldAddress}`);
         coldWalletAddress = coldAddress;
       } else {
         console.log('⚠ Could not extract Cold address');
+      }
+      
+      // Validate all three addresses are unique
+      const addresses = [rootAddress, depositAddress, coldAddress].filter(Boolean);
+      const uniqueAddresses = new Set(addresses.map(a => a.toLowerCase()));
+      if (uniqueAddresses.size !== addresses.length) {
+        console.log('⚠ WARNING: Some wallet addresses are duplicated!');
+        console.log(`  Root: ${rootAddress}`);
+        console.log(`  Deposit: ${depositAddress}`);
+        console.log(`  Cold: ${coldAddress}`);
+      } else {
+        console.log('✓ All wallet addresses are unique');
       }
     } catch (e) {
       console.log('Error extracting wallet addresses:', e.message);
@@ -263,22 +316,38 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
     }
     
     // Step 10: Initialize wallets
-    console.log('\n--- Step 10: Initializing Wallets ---');
-    
-    // Refresh before initialization to ensure we see latest wallet states
-    await refreshAssetWalletPage(basePage);
-    await basePage.waitForTimeout(2000);
-    
-    console.log('Initializing Root wallet...');
-    await runInitializeSequence(basePage, { walletLabel: 'Root' });
-    
-    // Refresh between initializations
-    await refreshAssetWalletPage(basePage);
-    await basePage.waitForTimeout(2000);
-    
-    if (depositWalletInitLabel) {
-      console.log(`Initializing Deposit wallet (${depositWalletInitLabel})...`);
-      await runInitializeSequence(basePage, { walletLabel: depositWalletInitLabel });
+    if (CONFIG.chainId === 'TRX_TEST') {
+      console.log('\n--- Step 10: Initializing Wallets (skipped for TRX_TEST) ---');
+    } else {
+      console.log('\n--- Step 10: Initializing Wallets ---');
+
+      console.log('Returning to asset wallet table before initialization...');
+      await returnToAssetWalletTable(basePage, walletName).catch(() => {});
+
+      // Refresh before initialization to ensure we see latest wallet states
+      await refreshAssetWalletPage(basePage);
+      await basePage.waitForTimeout(2000);
+
+      if (depositWalletInitLabel) {
+        console.log(`Initializing Deposit wallet (${depositWalletInitLabel})...`);
+        await runInitializeSequence(basePage, { walletLabel: depositWalletInitLabel });
+      }
+
+      // Refresh between initializations
+      await refreshAssetWalletPage(basePage);
+      await basePage.waitForTimeout(2000);
+
+      console.log('Initializing Root wallet...');
+      await runInitializeSequence(basePage, { walletLabel: 'Root' });
+
+      console.log('Waiting for wallet statuses to be "Initialized"...');
+      const depositReady = depositWalletInitLabel
+        ? await waitForWalletStatus(basePage, depositWalletInitLabel, 'Initialized', { timeoutMs: 240000 })
+        : true;
+      const rootReady = await waitForWalletStatus(basePage, 'Root', 'Initialized', { timeoutMs: 240000 });
+
+      console.log(`Deposit wallet initialized: ${depositReady ? '✓' : '⚠ not confirmed'}`);
+      console.log(`Root wallet initialized: ${rootReady ? '✓' : '⚠ not confirmed'}`);
     }
     
     // Step 11: Sweep
@@ -403,37 +472,60 @@ async function waitForCreateAssetModal(page) {
   return page;
 }
 
-async function handleCreateAssetModal(ctx, assetSearchText) {
+async function handleCreateAssetModal(ctx, selection) {
   const modalCtx = ctx;
   let walletName = generateRandomWalletName();
   const modal = modalCtx.locator('[role="dialog"], .modal, [class*="modal"], [class*="dialog"]').first();
   try { await modal.waitFor({ state: 'visible', timeout: 3000 }); } catch (e) {}
 
-  console.log(`Step 1: Selecting ${assetSearchText} asset...`);
+  const assetName = typeof selection === 'object' && selection ? selection.assetName : null;
+  const chainTextRaw = typeof selection === 'string' ? selection : (selection?.chainText ?? '');
+  const chainText = (chainTextRaw || '').trim();
+
+  console.log(`Step 1: Selecting asset${assetName ? ` (${assetName})` : ''} for chain: ${chainText}...`);
   try {
     const opener = modal.locator('[role="combobox"], button[aria-haspopup="listbox"], .select, div[role="button"]').first();
     if ((await opener.count()) > 0) { await opener.click().catch(() => {}); await modalCtx.waitForTimeout(300); }
-    
-    // Search for the asset in dropdown
-    const option = modalCtx.locator(`li[role="option"]:has-text("${assetSearchText}")`).first();
-    if ((await option.count()) > 0) { 
-      await option.click().catch(() => option.click({ force: true })); 
-      console.log(`✓ ${assetSearchText} selected`); 
+
+    // Preferred: click the chain subtext element inside the option.
+    // Example DOM (user-provided):
+    // <div class="truncate text-xs ...">OngKawKaw (MATIC_TEST_AMOY)</div>
+    const optionCandidates = modalCtx.locator('[role="option"]');
+    const chainSubtext = modalCtx.locator('div.truncate.text-xs', { hasText: chainText });
+    let optionByChain = optionCandidates.filter({ has: chainSubtext });
+    if (assetName) {
+      optionByChain = optionByChain.filter({ has: modalCtx.locator('div', { hasText: assetName }) });
+    }
+
+    if ((await optionByChain.count().catch(() => 0)) > 0) {
+      const opt = optionByChain.first();
+      const text = await opt.textContent().catch(() => '');
+      console.log(`  Found matching option: ${text.substring(0, 120)}`);
+      await opt.scrollIntoViewIfNeeded().catch(() => {});
+      await opt.click().catch(() => opt.click({ force: true }));
+      console.log(`✓ Selected asset for chain: ${chainText}`);
     } else {
-      // Try partial match
-      const allOptions = modalCtx.locator('li[role="option"]');
-      const count = await allOptions.count();
+      // Fallback: scan option textContent and require both asset name and chain text.
+      const count = await optionCandidates.count();
+      let found = false;
       for (let i = 0; i < count; i++) {
-        const opt = allOptions.nth(i);
+        const opt = optionCandidates.nth(i);
         const text = await opt.textContent().catch(() => '');
-        if (text.toLowerCase().includes(assetSearchText.toLowerCase())) {
-          await opt.click().catch(() => opt.click({ force: true }));
-          console.log(`✓ Selected asset matching "${assetSearchText}": ${text}`);
-          break;
-        }
+        const textLower = text.toLowerCase();
+        if (!chainText || !textLower.includes(chainText.toLowerCase())) continue;
+        if (assetName && !textLower.includes(assetName.toLowerCase())) continue;
+        console.log(`  Found matching option (fallback): ${text.substring(0, 120)}`);
+        await opt.scrollIntoViewIfNeeded().catch(() => {});
+        await opt.click().catch(() => opt.click({ force: true }));
+        console.log(`✓ Selected asset for chain: ${chainText}`);
+        found = true;
+        break;
+      }
+      if (!found) {
+        console.log(`⚠ No option found for chain="${chainText}"${assetName ? ` and asset="${assetName}"` : ''}`);
       }
     }
-  } catch (e) { console.log(`Select ${assetSearchText} failed:`, e.message); }
+  } catch (e) { console.log('Select asset failed:', e.message); }
 
   console.log('Step 2: Filling name field...');
   try {
@@ -681,6 +773,9 @@ async function openTransferUiAndSendMultiple(context, recipientAddresses, amount
       console.log('Failed to fill transfer input:', e.message);
     }
 
+    // Wait briefly after pasting before sending
+    await page.waitForTimeout(2500);
+
     // Click Send button
     const sendBtn = page.locator('button:has-text("Send Tokens")').first();
     if ((await sendBtn.count()) === 0) {
@@ -840,10 +935,11 @@ const EXCLUDED_WALLET_TYPES = ['gas station', 'gas-station', 'gasstation'];
 
 async function selectAndCopyWalletAddress(page, targetLabel = null) {
   try {
-    if (page.isClosed && page.isClosed()) { return null; }
+    if (page.isClosed && page.isClosed()) { console.log('Page is closed'); return null; }
+    console.log(`Finding wallet row${targetLabel ? ` with label "${targetLabel}"` : ' (first row)'}...`);
     const allRows = page.locator('table tbody tr, [role="table"] [role="row"]');
     const rowCount = await allRows.count();
-    if (rowCount === 0) { return null; }
+    if (rowCount === 0) { console.log('No wallet rows'); return null; }
 
     let targetRow = null;
     if (targetLabel) {
@@ -858,23 +954,31 @@ async function selectAndCopyWalletAddress(page, targetLabel = null) {
           console.log(`  ⊘ Skipping excluded wallet type in row: ${rowFullText.substring(0, 50)}...`);
           continue;
         }
+
+        // If looking for Root, skip rows containing Cold or Deposit
+        // If looking for Cold, skip rows containing Root or Deposit
+        // If looking for Deposit, skip rows containing Root or Cold (but match deposit-named wallets)
+        const isRoot = tl === 'root';
+        const isCold = tl === 'cold';
+        const isDeposit = tl.includes('deposit');
+        
+        if (isRoot && (rowFullText.includes('cold') || rowFullText.includes('deposit'))) continue;
+        if (isCold && (rowFullText.includes('root') || rowFullText.includes('deposit'))) continue;
+        // For deposit wallets - match by exact name or "deposit" label, but not root/cold
+        if (isDeposit && !isRoot && !isCold) {
+          if (rowFullText.includes('root') || rowFullText.includes('cold')) continue;
+        }
         
         if (rowFullText.includes(tl)) {
           targetRow = r;
+          console.log(`✓ Found row with label "${targetLabel}" at index ${i}`);
           break;
         }
       }
+      // Do NOT fall back to first row if targetLabel was provided - return null instead
       if (!targetRow) {
-        // Fallback: find first non-excluded row
-        for (let i = 0; i < rowCount; i++) {
-          const r = allRows.nth(i);
-          const rowFullText = (await r.textContent().catch(() => '')).toLowerCase();
-          const isExcluded = EXCLUDED_WALLET_TYPES.some(excluded => rowFullText.includes(excluded));
-          if (!isExcluded) {
-            targetRow = r;
-            break;
-          }
-        }
+        console.log(`⚠ No row found containing label "${targetLabel}"`);
+        return null;
       }
     } else {
       // No target label - find first non-excluded row
@@ -894,20 +998,53 @@ async function selectAndCopyWalletAddress(page, targetLabel = null) {
       return null;
     }
 
+    // Extract address from row text directly via regex - most reliable
     const rowText = await targetRow.textContent().catch(() => '');
     // Try ETH-style address first
     let match = rowText && rowText.match(/0x[a-fA-F0-9]{40}/);
     if (match) {
-      return match[0].trim();
+      const normalized = match[0].trim();
+      console.log('✓ Address extracted from row text:', normalized);
+      return normalized;
     }
     // Try TRX-style address (T...)
     match = rowText && rowText.match(/T[a-zA-Z0-9]{33}/);
     if (match) {
-      return match[0].trim();
+      const normalized = match[0].trim();
+      console.log('✓ Address extracted from row text:', normalized);
+      return normalized;
     }
     
+    // Fallback: try to click copy button
+    const copyBtn = targetRow.locator('button:has(.iconify[class*="i-carbon:copy"]), button[aria-label*="copy"], button:has-text("Copy")').first();
+    if ((await copyBtn.count()) > 0) {
+      try { 
+        await copyBtn.click().catch(() => copyBtn.click({ force: true })); 
+        console.log('Clicked copy button');
+        await page.waitForTimeout(200);
+      } catch (e) { console.log('Copy click failed', e.message); }
+    }
+    
+    // Try clipboard read after clicking
+    try { 
+      const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => '')); 
+      if (clip) {
+        let clipMatch = clip.match(/0x[a-fA-F0-9]{40}/);
+        if (clipMatch) { 
+          console.log('Address read from clipboard'); 
+          return clipMatch[0]; 
+        }
+        clipMatch = clip.match(/T[a-zA-Z0-9]{33}/);
+        if (clipMatch) { 
+          console.log('Address read from clipboard'); 
+          return clipMatch[0]; 
+        }
+      }
+    } catch (e) {}
+    
+    console.log('Could not extract wallet address');
     return null;
-  } catch (e) { return null; }
+  } catch (e) { console.log('selectAndCopyWalletAddress error:', e.message); return null; }
 }
 
 async function waitForWalletRowByName(page, walletName, timeoutMs = 60000) {
@@ -1015,7 +1152,7 @@ async function clickOverlayButton(page, label, options = {}) {
 async function waitForOtpInputs(page, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const otpInputs = page.locator('input[name="otp"], input[data-otp], .otp input');
+    const otpInputs = page.locator('input[name="otp"], input[data-otp], .otp input, input[type="text"][inputmode="numeric"], input[type="tel"], input[class*="otp"]');
     if ((await otpInputs.count()) > 0) { return true; }
     await page.waitForTimeout(500);
   }
@@ -1074,26 +1211,40 @@ async function navigateToWalletRow(page, walletLabel) {
     }).catch(() => {});
     await page.waitForTimeout(500);
     
-    // Find the wallet row
     const allRows = page.locator('table tbody tr, [role="table"] [role="row"]');
-    const rowCount = await allRows.count();
-    
-    for (let i = 0; i < rowCount; i++) {
-      const row = allRows.nth(i);
-      const rowText = (await row.textContent().catch(() => '')).toLowerCase();
-      
-      // Skip gas station rows
-      if (rowText.includes('gas station')) continue;
-      
-      if (rowText.includes(label)) {
-        console.log(`  ✓ Found wallet row for: ${walletLabel}`);
-        await row.scrollIntoViewIfNeeded().catch(() => {});
-        await row.click({ force: true }).catch(() => {});
-        await page.waitForTimeout(1500);
-        return true;
+    const tryFindAndClick = async () => {
+      const rowCount = await allRows.count();
+      for (let i = 0; i < rowCount; i++) {
+        const row = allRows.nth(i);
+        const rowText = (await row.textContent().catch(() => '')).toLowerCase();
+        if (rowText.includes('gas station')) continue;
+        if (rowText.includes(label)) {
+          console.log(`  ✓ Found wallet row for: ${walletLabel}`);
+          await row.scrollIntoViewIfNeeded().catch(() => {});
+          await row.click({ force: true }).catch(() => {});
+          await page.waitForTimeout(1500);
+          return true;
+        }
       }
+      return false;
+    };
+
+    if (await tryFindAndClick()) return true;
+
+    // Scroll down in case the row is below the fold / virtualized
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => {
+        const container = document.scrollingElement || document.documentElement;
+        if (container) container.scrollTop = container.scrollTop + window.innerHeight * 0.8;
+        document.querySelectorAll('table, [role="table"]').forEach(tbl => {
+          const parent = tbl.parentElement || tbl;
+          parent.scrollTop = parent.scrollTop + Math.max(200, parent.clientHeight * 0.6);
+        });
+      }).catch(() => {});
+      await page.waitForTimeout(400);
+      if (await tryFindAndClick()) return true;
     }
-    
+
     console.log(`  ⚠ Could not find wallet row for: ${walletLabel}`);
     return false;
   } catch (e) {
@@ -1107,13 +1258,9 @@ async function runInitializeSequence(page, options = {}) {
   const filterLabel = options?.walletLabel ? options.walletLabel.trim().toLowerCase() : null;
   console.log(`  🔧 Running initialize sequence${filterLabel ? ` for wallet: ${filterLabel}` : ''}...`);
   
-  // First, navigate to the wallet row to see its details and buttons
+  // Do not navigate into wallet details; stay on asset wallet table
   if (filterLabel) {
-    const navigated = await navigateToWalletRow(page, options.walletLabel);
-    if (!navigated) {
-      console.log(`  ⚠ Could not navigate to wallet ${options.walletLabel}, trying to find Initialize button anyway...`);
-    }
-    await page.waitForTimeout(1000);
+    console.log(`  📍 Looking for Initialize button on asset wallet table for: ${options.walletLabel}`);
   }
   
   const findButtonNearStatus = async (statusText, label) => {
@@ -1128,6 +1275,20 @@ async function runInitializeSequence(page, options = {}) {
         const btn = row.locator(`button:has-text("${label}")`).first();
         if ((await btn.count()) > 0) return btn;
       }
+    }
+    return null;
+  };
+
+  const findInitializeButtonForLabel = async () => {
+    if (!filterLabel) return null;
+    const rows = page.locator('table tbody tr, [role="row"]');
+    const count = await rows.count();
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      const rowText = (await row.textContent().catch(() => '')).toLowerCase();
+      if (!rowText.includes(filterLabel)) continue;
+      const btn = row.locator('button:has-text("Initialize")').first();
+      if ((await btn.count()) > 0) return btn;
     }
     return null;
   };
@@ -1164,7 +1325,45 @@ async function runInitializeSequence(page, options = {}) {
     }
   };
 
-  const pendingInitBtn = await findButtonNearStatus('Pending initialization', 'Initialize');
+  const clickDialogButton = async (label, options = {}) => {
+    const { waitForDisappear = true } = options;
+    const overlay = await findVisibleOverlay(page);
+    const btn = overlay.locator(`button:has-text("${label}")`).first();
+    if ((await btn.count()) === 0) { 
+      console.log(`    ⚠ Dialog button "${label}" not found`);
+      return false; 
+    }
+    try {
+      await btn.scrollIntoViewIfNeeded().catch(() => {});
+      await btn.waitFor({ state: 'visible', timeout: 10000 });
+      await btn.click({ force: true });
+      console.log(`    ✓ Clicked dialog "${label}"`);
+      if (waitForDisappear) {
+        await overlay.waitFor({ state: 'detached', timeout: 15000 }).catch(() => {});
+      }
+      await page.waitForTimeout(800);
+      return true;
+    } catch (e) {
+      console.log(`    ⚠ Failed to click dialog "${label}": ${e.message}`);
+      return false;
+    }
+  };
+
+  const findInitButtonWithScroll = async () => {
+    let btn = await findButtonNearStatus('Pending initialization', 'Initialize');
+    if (!btn) btn = await findInitializeButtonForLabel();
+    if (btn) return btn;
+
+    for (let i = 0; i < 5; i++) {
+      await scrollWalletTableToBottom(page, 1, 250);
+      btn = await findButtonNearStatus('Pending initialization', 'Initialize');
+      if (!btn) btn = await findInitializeButtonForLabel();
+      if (btn) return btn;
+    }
+    return null;
+  };
+
+  const pendingInitBtn = await findInitButtonWithScroll();
   if (pendingInitBtn) {
     console.log('  Found "Pending initialization" status with Initialize button');
   }
@@ -1183,12 +1382,55 @@ async function runInitializeSequence(page, options = {}) {
       await fillOtpInContext(page, page.locator('body'));
       console.log('    ✓ OTP filled');
       await page.waitForTimeout(800);
-      await clickButtonStep('Initialize');
+      let finalClicked = false;
+      for (let i = 0; i < 3; i++) {
+        finalClicked = await clickDialogButton('Initialize', { waitForDisappear: true });
+        if (finalClicked) break;
+        await page.waitForTimeout(800);
+      }
+      if (!finalClicked) {
+        await clickButtonStep('Initialize');
+      }
     }
     console.log('  ✓ Initialize sequence completed');
   } else {
     console.log('  ⚠ No Initialize button found (wallet may already be initialized)');
   }
+}
+
+async function walletRowHasStatus(page, walletLabel, statusText) {
+  if (!walletLabel || !statusText) return false;
+  const label = walletLabel.trim().toLowerCase();
+  const status = statusText.trim().toLowerCase();
+  const rows = page.locator('table tbody tr, [role="row"]');
+  const count = await rows.count();
+  for (let i = 0; i < count; i++) {
+    const row = rows.nth(i);
+    const rowText = (await row.textContent().catch(() => '')).toLowerCase();
+    if (!rowText.includes(label)) continue;
+    if (rowText.includes(status)) return true;
+  }
+  return false;
+}
+
+async function waitForWalletStatus(page, walletLabel, statusText, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 180000;
+  const refreshWaitMs = options.refreshWaitMs ?? 6000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    await refreshAssetWalletPage(page);
+    await page.waitForTimeout(1500);
+
+    if (await walletRowHasStatus(page, walletLabel, statusText)) return true;
+
+    await scrollWalletTableToBottom(page, 2, 300);
+    if (await walletRowHasStatus(page, walletLabel, statusText)) return true;
+
+    await page.waitForTimeout(refreshWaitMs);
+  }
+
+  return false;
 }
 
 // Claim functions
@@ -1347,7 +1589,7 @@ async function ensureTxAndClaimWallet(page, context, walletInfo, sendResults, am
 }
 
 // Sweep functions
-async function runWalletSweep(page, label, address, amount, tokenType = 'OKK') {
+async function runWalletSweep(page, label, address, amount, tokenType = 'OKK', chainId = null) {
   if (!label) { return false; }
   if (sweepedWalletLabels.has(`${label}-${tokenType}`)) { return false; }
 
@@ -1405,11 +1647,18 @@ async function runWalletSweep(page, label, address, amount, tokenType = 'OKK') {
   await clickOverlayButton(page, 'Next');
   await page.waitForTimeout(1000);
 
-  // Fill OTP
-  await waitForOtpInputs(page, 20000);
-  overlay = await findVisibleOverlay(page);
-  await fillOtpInContext(page, overlay);
-  await page.waitForTimeout(600);
+  // Fill OTP (skip for TRX_TEST)
+  if (chainId !== 'TRX_TEST') {
+    const otpFound = await waitForOtpInputs(page, 20000);
+    if (!otpFound) {
+      console.log('⚠ OTP inputs not detected yet; attempting to fill anyway');
+    }
+    overlay = await findVisibleOverlay(page);
+    await fillOtpInContext(page, overlay);
+    await page.waitForTimeout(600);
+  } else {
+    console.log('  ⊘ Skipping OTP for TRX_TEST chain');
+  }
 
   // Click Sweep
   await clickOverlayButton(page, 'Sweep');
@@ -1420,7 +1669,7 @@ async function runWalletSweep(page, label, address, amount, tokenType = 'OKK') {
   return true;
 }
 
-async function runColdWalletSweep(page, address, amount, tokenType = 'OKK') {
+async function runColdWalletSweep(page, address, amount, tokenType = 'OKK', chainId = null) {
   const label = 'Cold';
   
   if (sweepedWalletLabels.has(`${label}-${tokenType}`)) { return false; }
@@ -1485,11 +1734,18 @@ async function runColdWalletSweep(page, address, amount, tokenType = 'OKK') {
   await nextBtn2.click({ force: true });
   await page.waitForTimeout(2000);
 
-  // Step 5: 2FA
-  await waitForOtpInputs(page, 20000);
-  overlay = await findVisibleOverlay(page);
-  await fillOtpInContext(page, overlay);
-  await page.waitForTimeout(1500);
+  // Step 5: 2FA (skip for TRX_TEST)
+  if (chainId !== 'TRX_TEST') {
+    const otpFound = await waitForOtpInputs(page, 20000);
+    if (!otpFound) {
+      console.log('⚠ OTP inputs not detected yet; attempting to fill anyway');
+    }
+    overlay = await findVisibleOverlay(page);
+    await fillOtpInContext(page, overlay);
+    await page.waitForTimeout(1500);
+  } else {
+    console.log('  ⊘ Skipping OTP for TRX_TEST chain');
+  }
 
   // Step 6: Sweep cold to root wallet
   overlay = await findVisibleOverlay(page);
@@ -1540,24 +1796,26 @@ async function handlePostInitializationSweeps(page, amountMap, rootAddress, conf
   await refreshAssetWalletPage(page);
   await page.waitForTimeout(2000);
 
+  const chainId = config.chainId;
+
   // Sweep Deposit
   console.log(`\n📋 Step 2: Processing Deposit Wallet Sweep (${sweepToken})...`);
   if (depositWalletInitLabel && depositWalletAddress) {
-    await runWalletSweep(page, depositWalletInitLabel, depositWalletAddress, sweepAmount, sweepToken);
+    await runWalletSweep(page, depositWalletInitLabel, depositWalletAddress, sweepAmount, sweepToken, chainId);
     await page.waitForTimeout(2000);
   }
 
   // Sweep Root
   console.log(`\n📋 Step 3: Processing Root Wallet Sweep (${sweepToken})...`);
   if (rootAddress) {
-    await runWalletSweep(page, 'Root', rootAddress, sweepAmount, sweepToken);
+    await runWalletSweep(page, 'Root', rootAddress, sweepAmount, sweepToken, chainId);
     await page.waitForTimeout(2000);
   }
 
   // Sweep Cold
   console.log(`\n📋 Step 4: Processing Cold Wallet Sweep (${sweepToken})...`);
   if (coldWalletAddress) {
-    await runColdWalletSweep(page, coldWalletAddress, sweepAmount, sweepToken);
+    await runColdWalletSweep(page, coldWalletAddress, sweepAmount, sweepToken, chainId);
     await page.waitForTimeout(2000);
   }
 
