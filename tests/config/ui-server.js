@@ -31,12 +31,13 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '*').split(',').filter(Bool
 
 function setCorsHeaders(req, res) {
   const origin = req.headers.origin;
-  // Allow same-origin (no origin header) or whitelisted origins
-  if (!origin) return;
+  // Always set CORS headers for cross-origin requests
+  // If no origin, allow (same-origin request)
+  const allowOrigin = origin || '*';
   
   const allowAll = ALLOWED_ORIGINS.includes('*');
-  if (allowAll || ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  if (allowAll || !origin || ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
