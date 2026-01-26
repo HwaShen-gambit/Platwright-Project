@@ -24,6 +24,7 @@ const CONFIG_FILE = path.join(__dirname, 'test.config.json');
 const UI_DIR = path.join(__dirname, 'ui');
 
 const PORT = parseInt(process.env.CONFIG_UI_PORT || '4177', 10);
+const HOST = process.env.CONFIG_UI_HOST || '127.0.0.1';
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -381,8 +382,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
-  console.log(`Config UI server running at http://localhost:${PORT}`);
+  console.log(`Config UI server running at http://${HOST}:${PORT}`);
   console.log('Config file:', CONFIG_FILE);
 });

@@ -1,0 +1,4 @@
+test-results/
+tests/config/test.config.json
+node_modules/
+run-*.log

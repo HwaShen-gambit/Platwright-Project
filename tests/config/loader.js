@@ -46,12 +46,20 @@ export function loadTestConfig() {
     throw new Error(`Unknown chain: ${chainId}. Available: ${Object.keys(CHAIN_CONFIGS).join(', ')}`);
   }
 
+  const email = config.email || '';
+  const password = config.password || '';
+  const baseUrl = config.baseUrl || 'https://staging-web-enterprise.sandbox.gambitcustody-test.com/login';
+
+  if (!email || !password) {
+    throw new Error('Missing credentials. Provide TEST_EMAIL/TEST_PASSWORD or run the config UI.');
+  }
+
   return {
     // Credentials
-    email: config.email || 'hwashenwong+2@gambit.com.my',
-    password: config.password || 'Yy12220901!',
-    baseUrl: config.baseUrl || 'https://staging-web-enterprise.sandbox.gambitcustody-test.com/login',
-    
+    email,
+    password,
+    baseUrl,
+
     // Chain config
     chainId: chainId,
     chainName: chainConfig.name,
