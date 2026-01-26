@@ -11,13 +11,22 @@ test('Connectivity login check', async ({ page }) => {
     throw new Error('Missing TEST_EMAIL, TEST_PASSWORD, or BASE_URL');
   }
 
-  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // Navigate to the base URL with better error handling
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  } catch (navError) {
+    throw new Error(`Cannot reach ${baseUrl}: ${navError.message}`);
+  }
 
   const emailInput = page.locator('input[type="email"], input[name="email"], input[placeholder*="email" i]').first();
   const passwordInput = page.locator('input[type="password"], input[name="password"], input[placeholder*="password" i]').first();
 
-  await emailInput.waitFor({ state: 'visible', timeout: 15000 });
-  await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+  try {
+    await emailInput.waitFor({ state: 'visible', timeout: 15000 });
+    await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+  } catch (waitError) {
+    throw new Error(`Login form not found on page. Check if ${baseUrl} has email/password inputs.`);
+  }
 
   await emailInput.fill(email);
   await passwordInput.fill(password);
