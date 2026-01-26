@@ -299,6 +299,19 @@
       </div>
     </div>
 
-    <script type="module" src="/ui/app.js"></script>
+    <!--
+      Backend Configuration:
+      For Vercel-only deployment, leave API_BASE empty (same origin).
+      The API functions at /api/* will be called on the same domain.
+      
+      Note: Test execution (/api/run) is NOT supported on Vercel Serverless.
+      Only config and chains endpoints work.
+    -->
+    <script>
+      // For Vercel-only: leave empty (uses same origin)
+      // For external backend: set to 'https://your-backend.fly.dev'
+      // window.WALLET_TEST_API_BASE = '';
+    </script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

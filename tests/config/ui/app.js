@@ -1,5 +1,10 @@
 const $ = (id) => document.getElementById(id);
 
+// API_BASE: Set this to your backend URL when deploying UI separately
+// For local dev: '' (empty = same origin)
+// For Vercel UI + external backend: 'https://your-backend.fly.dev' or similar
+const API_BASE = window.WALLET_TEST_API_BASE || '';
+
 const serverPill = $('serverPill');
 const runPill = $('runPill');
 const connPill = $('connPill');
@@ -58,16 +63,19 @@ function clearLogs() {
 }
 
 async function apiGet(path) {
-  const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+  const url = API_BASE + path;
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'include' });
   if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
   return res.json();
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(path, {
+  const url = API_BASE + path;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    credentials: 'include'
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -159,7 +167,7 @@ async function testConnectivity() {
     setPill(connPill, `Connectivity: success${stage}`, 'ok');
     appendLog(`[CONNECTIVITY] Success${stage}`);
     testConnBtn.classList.remove('loading');
-    testConnBtn.classList.add('success');
+    testConnBtn.classList.add('success'); 
     testConnBtn.textContent = '✓ Connected';
   } catch (e) {
     setPill(connPill, `Connectivity: failed`, 'bad');
@@ -175,13 +183,28 @@ async function testConnectivity() {
 
 function connectEvents() {
   if (eventSource) eventSource.close();
-  eventSource = new EventSource('/api/events');
+  
+  // Check if SSE is supported (won't work on Vercel Serverless)
+  const eventsUrl = API_BASE + '/api/events';
+  eventSource = new EventSource(eventsUrl);
+  
+  // Set a timeout - if we don't connect in 5s, assume serverless (no SSE)
+  const sseTimeout = setTimeout(() => {
+    if (eventSource.readyState !== EventSource.OPEN) {
+      eventSource.close();
+      setPill(serverPill, 'Server: Vercel (limited)', 'warn');
+      appendLog('[INFO] Running on Vercel Serverless. SSE streaming not available.');
+      appendLog('[INFO] Test execution requires external backend. Config/chains work.');
+    }
+  }, 5000);
 
   eventSource.onopen = () => {
+    clearTimeout(sseTimeout);
     setPill(serverPill, 'Server: connected', 'ok');
   };
 
   eventSource.onerror = () => {
+    clearTimeout(sseTimeout);
     setPill(serverPill, 'Server: disconnected', 'bad');
   };
 

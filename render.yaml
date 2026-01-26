@@ -1,0 +1,15 @@
+# Render Blueprint - Deploy with one click
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: playwright-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 4177
+      - key: CORS_ORIGINS
+        sync: false  # Set this manually to your Vercel frontend URL
+    healthCheckPath: /health
+    plan: starter  # Use 'standard' for more memory if needed

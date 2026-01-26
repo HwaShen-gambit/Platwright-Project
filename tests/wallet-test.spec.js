@@ -328,26 +328,72 @@ test(`Multi-Chain Wallet Test - ${CONFIG.chainDisplayName}`, async ({ page, cont
       await refreshAssetWalletPage(basePage);
       await basePage.waitForTimeout(2000);
 
+      // Step 10a: Initialize Deposit wallet
       if (depositWalletInitLabel) {
-        console.log(`Initializing Deposit wallet (${depositWalletInitLabel})...`);
+        console.log(`\n📋 Step 10a: Initializing Deposit wallet (${depositWalletInitLabel})...`);
         await runInitializeSequence(basePage, { walletLabel: depositWalletInitLabel });
+        await basePage.waitForTimeout(2000);
       }
 
       // Refresh between initializations
       await refreshAssetWalletPage(basePage);
       await basePage.waitForTimeout(2000);
 
-      console.log('Initializing Root wallet...');
+      // Step 10b: Initialize Root wallet
+      console.log('\n📋 Step 10b: Initializing Root wallet...');
       await runInitializeSequence(basePage, { walletLabel: 'Root' });
+      await basePage.waitForTimeout(2000);
 
-      console.log('Waiting for wallet statuses to be "Initialized"...');
-      const depositReady = depositWalletInitLabel
-        ? await waitForWalletStatus(basePage, depositWalletInitLabel, 'Initialized', { timeoutMs: 240000 })
-        : true;
-      const rootReady = await waitForWalletStatus(basePage, 'Root', 'Initialized', { timeoutMs: 240000 });
+      // Step 10c: Refresh page and wait until both wallets are fully initialized
+      console.log('\n📋 Step 10c: Verifying both wallets are fully initialized...');
+      console.log('Refreshing page and waiting for wallet statuses to be "Initialized"...');
+      
+      let depositReady = !depositWalletInitLabel; // If no deposit wallet, consider it ready
+      let rootReady = false;
+      const maxVerificationAttempts = 20;
+      const verificationInterval = 10000; // 10 seconds between checks
+      
+      for (let attempt = 1; attempt <= maxVerificationAttempts; attempt++) {
+        console.log(`  Verification attempt ${attempt}/${maxVerificationAttempts}...`);
+        
+        // Refresh the page
+        await refreshAssetWalletPage(basePage);
+        await basePage.waitForTimeout(3000);
+        
+        // Scroll to ensure we can see all wallets
+        await scrollWalletTableToBottom(basePage, 2, 300);
+        
+        // Check deposit wallet status
+        if (depositWalletInitLabel && !depositReady) {
+          depositReady = await walletRowHasStatus(basePage, depositWalletInitLabel, 'Initialized');
+          console.log(`    Deposit wallet (${depositWalletInitLabel}): ${depositReady ? '✓ Initialized' : '⏳ Pending'}`);
+        }
+        
+        // Check root wallet status
+        if (!rootReady) {
+          rootReady = await walletRowHasStatus(basePage, 'Root', 'Initialized');
+          console.log(`    Root wallet: ${rootReady ? '✓ Initialized' : '⏳ Pending'}`);
+        }
+        
+        // If both are ready, break out of the loop
+        if (depositReady && rootReady) {
+          console.log('\n  ✓ Both wallets are fully initialized!');
+          break;
+        }
+        
+        // Wait before next check
+        if (attempt < maxVerificationAttempts) {
+          console.log(`    Waiting ${verificationInterval / 1000} seconds before next check...`);
+          await basePage.waitForTimeout(verificationInterval);
+        }
+      }
 
-      console.log(`Deposit wallet initialized: ${depositReady ? '✓' : '⚠ not confirmed'}`);
+      console.log(`\nDeposit wallet initialized: ${depositReady ? '✓' : '⚠ not confirmed'}`);
       console.log(`Root wallet initialized: ${rootReady ? '✓' : '⚠ not confirmed'}`);
+      
+      if (!depositReady || !rootReady) {
+        console.log('⚠ Warning: Not all wallets are confirmed as initialized. Proceeding with sweep anyway...');
+      }
     }
     
     // Step 11: Sweep
@@ -1363,6 +1409,7 @@ async function runInitializeSequence(page, options = {}) {
     return null;
   };
 
+  // Step 1: Find and click the Initialize button on the wallet row
   const pendingInitBtn = await findInitButtonWithScroll();
   if (pendingInitBtn) {
     console.log('  Found "Pending initialization" status with Initialize button');
@@ -1374,25 +1421,78 @@ async function runInitializeSequence(page, options = {}) {
 
   if (initialClicked) {
     console.log('  Initialize dialog opened, proceeding...');
+    
+    // Step 2: Click Estimate Gas Fee button
     if (await clickButtonStep('Estimate Gas Fee')) {
-      await page.waitForTimeout(1800);
+      // Step 3: Wait for 3 seconds
+      console.log('    ⏳ Waiting 3 seconds for gas estimation...');
+      await page.waitForTimeout(3000);
+      
+      // Step 4: Click Initialize button again (to proceed after gas estimation)
+      console.log('    Clicking Initialize button after gas estimation...');
       await clickButtonStep('Initialize', { waitForDisappear: false });
+      await page.waitForTimeout(1000);
+      
+      // Step 5: Wait for and fill 2FA OTP
+      console.log('    Waiting for 2FA input...');
       const otpFound = await waitForOtpInputs(page);
       console.log(`    OTP inputs: ${otpFound ? '✓ found' : '⚠ not found'}`);
-      await fillOtpInContext(page, page.locator('body'));
-      console.log('    ✓ OTP filled');
-      await page.waitForTimeout(800);
+      
+      // Try to find the OTP container in the dialog
+      const overlay = await findVisibleOverlay(page);
+      await fillOtpInContext(page, overlay);
+      console.log('    ✓ 2FA OTP filled with dummy number (123456)');
+      await page.waitForTimeout(1500);
+      
+      // Step 6: Click the final Initialize button to complete the process
+      console.log('    Clicking final Initialize button...');
       let finalClicked = false;
-      for (let i = 0; i < 3; i++) {
-        finalClicked = await clickDialogButton('Initialize', { waitForDisappear: true });
-        if (finalClicked) break;
-        await page.waitForTimeout(800);
+      
+      // Try multiple times to click the final Initialize button
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // First try to find Initialize button in the visible overlay/dialog
+        const currentOverlay = await findVisibleOverlay(page);
+        const initBtn = currentOverlay.locator('button:has-text("Initialize")').first();
+        
+        if ((await initBtn.count()) > 0) {
+          try {
+            await initBtn.scrollIntoViewIfNeeded().catch(() => {});
+            await initBtn.waitFor({ state: 'visible', timeout: 5000 });
+            await initBtn.click({ force: true });
+            console.log(`    ✓ Final Initialize button clicked (attempt ${attempt + 1})`);
+            finalClicked = true;
+            break;
+          } catch (e) {
+            console.log(`    ⚠ Attempt ${attempt + 1} failed: ${e.message}`);
+          }
+        }
+        
+        await page.waitForTimeout(1000);
       }
+      
+      // Fallback: try clicking any visible Initialize button
       if (!finalClicked) {
-        await clickButtonStep('Initialize');
+        console.log('    Trying fallback method for Initialize button...');
+        const anyInitBtn = page.locator('button:has-text("Initialize"):visible').first();
+        if ((await anyInitBtn.count()) > 0) {
+          try {
+            await anyInitBtn.click({ force: true });
+            console.log('    ✓ Final Initialize button clicked (fallback)');
+            finalClicked = true;
+          } catch (e) {
+            console.log(`    ⚠ Fallback click failed: ${e.message}`);
+          }
+        }
+      }
+      
+      if (finalClicked) {
+        // Wait for the dialog to close
+        await page.waitForTimeout(2000);
+        console.log('  ✓ Initialize sequence completed successfully');
+      } else {
+        console.log('  ⚠ Could not click final Initialize button');
       }
     }
-    console.log('  ✓ Initialize sequence completed');
   } else {
     console.log('  ⚠ No Initialize button found (wallet may already be initialized)');
   }

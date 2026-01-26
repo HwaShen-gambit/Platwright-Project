@@ -23,7 +23,25 @@ const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const CONFIG_FILE = path.join(__dirname, 'test.config.json');
 const UI_DIR = path.join(__dirname, 'ui');
 
-const PORT = parseInt(process.env.CONFIG_UI_PORT || '4177', 10);
+const PORT = parseInt(process.env.CONFIG_UI_PORT || process.env.PORT || '4177', 10);
+
+// CORS: Allow requests from Vercel-hosted UI or other origins
+// Set CORS_ORIGINS=https://your-frontend.vercel.app or use * for all
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '*').split(',').filter(Boolean);
+
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  // Allow same-origin (no origin header) or whitelisted origins
+  if (!origin) return;
+  
+  const allowAll = ALLOWED_ORIGINS.includes('*');
+  if (allowAll || ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+}
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -274,7 +292,23 @@ function runConnectivityTest({ baseUrl, email, password }) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    // Set CORS headers for all requests
+    setCorsHeaders(req, res);
+    
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    // Health check endpoint for Render
+    if (req.method === 'GET' && url.pathname === '/health') {
+      sendJson(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
+      return;
+    }
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/ui/') || url.pathname === '/index.html')) {
       serveStatic(req, res);

@@ -26,6 +26,28 @@ Then open:
 http://localhost:4177
 ```
 
+### Deployment Notes (UI vs Runner)
+
+The file at `tests/config/ui/index.html` is **only the UI**. It does not run Playwright by itself.
+Playwright can only run on a **backend runner** (Node.js + Playwright + browsers). A static host
+like Vercel can serve the UI, but it cannot execute browser automation.
+
+If you want a hosted UI that can trigger tests, you must deploy the **UI server**
+(`tests/config/ui-server.js`) to a backend that supports Node + Playwright (VM or container).
+Serverless platforms (including Vercel Functions) are not suitable for **headed** browser runs.
+For headed runs, use a VM/container with a display server (or Xvfb) and access via logs/stream.
+
+**Recommended setup**
+- Vercel: host the static UI only
+- Backend: run `node tests/config/ui-server.js` on a VM/container (Render, Fly.io, EC2, etc.)
+- UI calls backend endpoints: `/api/config`, `/api/run`, `/api/test-connection`, `/api/events`
+
+**Backend requirements**
+- Node.js 18+ and Playwright installed
+- Browsers installed: `npx playwright install --with-deps`
+- Port 4177 open (or reverse proxy to it)
+- Protect the backend with auth/IP allowlist
+
 From the page you can:
 - Fill email/password
 - Select the chain from a dropdown
@@ -48,7 +70,7 @@ This will ask for:
 - **Email**: Your login email
 - **Password**: Your login password (input is masked)
 - **Chain Selection**: Choose from available chains
-- **Base URL**: Application URL (default: staging)
+- **Base URL**: Application URL (default: dev env)
 
 Configuration is saved to `tests/config/test.config.json`.
 
