@@ -258,14 +258,17 @@ function runConnectivityTest({ baseUrl, email, password }) {
       'playwright',
       'test',
       'tests/connectivity.spec.js',
-      '--workers=1'
+      '--workers=1',
+      '--reporter=line'
     ];
 
     const env = {
       ...process.env,
       TEST_EMAIL: email,
       TEST_PASSWORD: password,
-      BASE_URL: baseUrl
+      BASE_URL: baseUrl,
+      // Force headless mode for Docker
+      PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright'
     };
 
     const proc = spawn('npx', args, {
