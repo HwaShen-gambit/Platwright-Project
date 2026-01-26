@@ -18,6 +18,13 @@ test('Connectivity login check', async ({ page }) => {
     throw new Error(`Cannot reach ${baseUrl}: ${navError.message}`);
   }
 
+  // Wait a moment for page to fully render
+  await page.waitForTimeout(2000);
+
+  // Check what's on the page
+  const pageTitle = await page.title().catch(() => 'unknown');
+  const pageUrl = page.url();
+
   const emailInput = page.locator('input[type="email"], input[name="email"], input[placeholder*="email" i]').first();
   const passwordInput = page.locator('input[type="password"], input[name="password"], input[placeholder*="password" i]').first();
 
@@ -25,7 +32,9 @@ test('Connectivity login check', async ({ page }) => {
     await emailInput.waitFor({ state: 'visible', timeout: 15000 });
     await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
   } catch (waitError) {
-    throw new Error(`Login form not found on page. Check if ${baseUrl} has email/password inputs.`);
+    // Take screenshot for debugging
+    const bodyText = await page.locator('body').textContent().catch(() => '').then(t => t?.slice(0, 500) || '');
+    throw new Error(`Login form not found. URL: ${pageUrl}, Title: ${pageTitle}. Page content: ${bodyText}`);
   }
 
   await emailInput.fill(email);
