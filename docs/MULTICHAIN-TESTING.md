@@ -26,6 +26,18 @@ Then open:
 http://localhost:4177
 ```
 
+To expose the UI to teammates (or a hosted environment), bind to 0.0.0.0:
+
+```bash
+CONFIG_UI_HOST=0.0.0.0 npm run config:web
+```
+
+Then share:
+
+```bash
+http://<your-machine-ip>:4177
+```
+
 From the page you can:
 - Fill email/password
 - Select the chain from a dropdown
@@ -48,7 +60,7 @@ This will ask for:
 - **Email**: Your login email
 - **Password**: Your login password (input is masked)
 - **Chain Selection**: Choose from available chains
-- **Base URL**: Application URL (default: staging)
+- **Base URL**: Application URL (required)
 
 Configuration is saved to `tests/config/test.config.json`.
 
@@ -94,8 +106,17 @@ You can also set configuration via environment variables:
 TEST_EMAIL="user@example.com" \
 TEST_PASSWORD="password123" \
 TEST_CHAIN="TRX_TEST" \
+BASE_URL="https://your-app.example/login" \
 npm run wallet
 ```
+
+BASE_URL is required when using environment variables or the config UI.
+
+## Publishing Checklist
+
+- Keep `tests/config/test.config.json` out of git (local-only config file).
+- Do not commit real credentials.
+- Use `CONFIG_UI_HOST=0.0.0.0` if you need LAN access; otherwise keep localhost for safety.
 
 Environment variables override saved config values.
 
