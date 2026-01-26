@@ -48,10 +48,17 @@ export function loadTestConfig() {
 
   const email = config.email || '';
   const password = config.password || '';
-  const baseUrl = config.baseUrl || 'https://staging-web-enterprise.sandbox.gambitcustody-test.com/login';
+  const baseUrl = config.baseUrl || '';
 
-  if (!email || !password) {
-    throw new Error('Missing credentials. Provide TEST_EMAIL/TEST_PASSWORD or run the config UI.');
+  const missingFields = [];
+  if (!email) missingFields.push('email');
+  if (!password) missingFields.push('password');
+  if (!baseUrl) missingFields.push('base URL');
+  if (missingFields.length) {
+    throw new Error(
+      `Missing required config: ${missingFields.join(', ')}. ` +
+        'Provide TEST_EMAIL/TEST_PASSWORD/BASE_URL environment variables or run the config UI (npm run config:web).'
+    );
   }
 
   return {

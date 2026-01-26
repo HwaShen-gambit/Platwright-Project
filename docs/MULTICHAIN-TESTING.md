@@ -60,7 +60,7 @@ This will ask for:
 - **Email**: Your login email
 - **Password**: Your login password (input is masked)
 - **Chain Selection**: Choose from available chains
-- **Base URL**: Application URL (default: staging)
+- **Base URL**: Application URL (required)
 
 Configuration is saved to `tests/config/test.config.json`.
 
@@ -106,8 +106,11 @@ You can also set configuration via environment variables:
 TEST_EMAIL="user@example.com" \
 TEST_PASSWORD="password123" \
 TEST_CHAIN="TRX_TEST" \
+BASE_URL="https://your-app.example/login" \
 npm run wallet
 ```
+
+BASE_URL is required when using environment variables or the config UI.
 
 ## Publishing Checklist
 
