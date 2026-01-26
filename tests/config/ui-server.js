@@ -148,6 +148,10 @@ let runState = {
 let logLines = [];
 let currentProcess = null;
 
+// In-memory config storage (does NOT persist to disk for security)
+// Each user session has their own config in their browser
+let inMemoryConfig = null;
+
 function addLog(line) {
   const trimmed = (line ?? '').toString().replace(/\r/g, '');
   if (!trimmed) return;
@@ -323,35 +327,40 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/config') {
-      const cfg = safeReadJson(CONFIG_FILE) || {};
-      // Never return password to the browser.
-      if (cfg && typeof cfg === 'object') {
-        delete cfg.password;
-      }
-      sendJson(res, 200, { config: cfg, configPath: 'tests/config/test.config.json' });
+      // Return in-memory config (no file persistence for security)
+      const cfg = inMemoryConfig || {};
+      // Never return password
+      const safeCfg = { ...cfg };
+      delete safeCfg.password;
+      sendJson(res, 200, { 
+        config: safeCfg, 
+        configPath: '(in-memory only, not saved to disk)',
+        note: 'Config is session-based. Enter your details each time.'
+      });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/config') {
       const body = await readBody(req);
       const input = JSON.parse(body || '{}');
-      const existing = safeReadJson(CONFIG_FILE) || {};
-      const next = buildConfig(input, existing);
+      const next = buildConfig(input, inMemoryConfig || {});
 
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2));
+      // Store in memory only (no file save for security)
+      inMemoryConfig = next;
+      
       sendJson(res, 200, {
         ok: true,
         chainId: next.chainId,
         chainDisplayName: next.chainDisplayName,
-        configPath: 'tests/config/test.config.json'
+        note: 'Config stored in memory only (not saved to disk)'
       });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/run') {
-      const cfg = safeReadJson(CONFIG_FILE);
+      const cfg = inMemoryConfig;
       if (!cfg || !cfg.email || !cfg.baseUrl || !cfg.chainId) {
-        sendJson(res, 400, { error: 'Config file missing or incomplete. Save config first.' });
+        sendJson(res, 400, { error: 'Config not set. Please fill in email, base URL, and chain first.' });
         return;
       }
 
