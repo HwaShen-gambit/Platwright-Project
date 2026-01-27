@@ -21,7 +21,7 @@ const __dirname = path.dirname(__filename);
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const CONFIG_FILE = path.join(__dirname, 'test.config.json');
-const UI_DIR = path.join(__dirname, 'ui');
+// UI is now hosted separately on Vercel - this is API-only
 
 const PORT = parseInt(process.env.CONFIG_UI_PORT || process.env.PORT || '4177', 10);
 
@@ -82,49 +82,7 @@ function readBody(req) {
   });
 }
 
-function contentTypeFor(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === '.html') return 'text/html; charset=utf-8';
-  if (ext === '.js') return 'text/javascript; charset=utf-8';
-  if (ext === '.css') return 'text/css; charset=utf-8';
-  if (ext === '.json') return 'application/json; charset=utf-8';
-  if (ext === '.svg') return 'image/svg+xml';
-  return 'application/octet-stream';
-}
-
-function serveStatic(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  let pathname = url.pathname;
-
-  if (pathname === '/' || pathname === '/index.html') {
-    pathname = '/ui/index.html';
-  }
-
-  if (!pathname.startsWith('/ui/')) {
-    sendText(res, 404, 'Not found');
-    return;
-  }
-
-  const rel = pathname.replace('/ui/', '');
-  const filePath = path.join(UI_DIR, rel);
-
-  if (!filePath.startsWith(UI_DIR)) {
-    sendText(res, 403, 'Forbidden');
-    return;
-  }
-
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    sendText(res, 404, 'Not found');
-    return;
-  }
-
-  const body = fs.readFileSync(filePath);
-  res.writeHead(200, {
-    'Content-Type': contentTypeFor(filePath),
-    'Cache-Control': 'no-store'
-  });
-  res.end(body);
-}
+// Static file serving removed - UI is hosted on Vercel
 
 // SSE clients
 const sseClients = new Set();
@@ -266,9 +224,9 @@ function runConnectivityTest({ baseUrl, email, password }) {
       ...process.env,
       TEST_EMAIL: email,
       TEST_PASSWORD: password,
-      BASE_URL: baseUrl,
-      // Force headless mode for Docker
-      PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright'
+      BASE_URL: baseUrl
+      // Note: PLAYWRIGHT_BROWSERS_PATH is inherited from process.env
+      // For Docker/Render, set it in the environment; for local, use default
     };
 
     const proc = spawn('npx', args, {
@@ -318,8 +276,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/ui/') || url.pathname === '/index.html')) {
-      serveStatic(req, res);
+    // Root endpoint - API info (no static files, UI is on Vercel)
+    if (req.method === 'GET' && url.pathname === '/') {
+      sendJson(res, 200, { 
+        service: 'Playwright Wallet Test API',
+        version: '1.0.0',
+        endpoints: ['/api/chains', '/api/config', '/api/run', '/api/test-connection', '/api/events', '/health']
+      });
       return;
     }
 

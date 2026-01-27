@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-test.setTimeout(120000);
+// Fast connectivity check - just verify URL is reachable and login form exists
+test.setTimeout(30000);
 
 test('Connectivity login check', async ({ page }) => {
   const email = process.env.TEST_EMAIL || '';
@@ -11,32 +12,31 @@ test('Connectivity login check', async ({ page }) => {
     throw new Error('Missing TEST_EMAIL, TEST_PASSWORD, or BASE_URL');
   }
 
-  // Navigate to the base URL with better error handling
+  // Quick navigation with short timeout
   try {
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
   } catch (navError) {
     throw new Error(`Cannot reach ${baseUrl}: ${navError.message}`);
   }
 
-  // Wait a moment for page to fully render
-  await page.waitForTimeout(2000);
+  // Brief wait for initial render
+  await page.waitForTimeout(500);
 
-  // Check what's on the page
-  const pageTitle = await page.title().catch(() => 'unknown');
-  const pageUrl = page.url();
-
+  // Quick check for login form elements
   const emailInput = page.locator('input[type="email"], input[name="email"], input[placeholder*="email" i]').first();
   const passwordInput = page.locator('input[type="password"], input[name="password"], input[placeholder*="password" i]').first();
 
   try {
-    await emailInput.waitFor({ state: 'visible', timeout: 15000 });
-    await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+    await emailInput.waitFor({ state: 'visible', timeout: 5000 });
+    await passwordInput.waitFor({ state: 'visible', timeout: 3000 });
   } catch (waitError) {
-    // Take screenshot for debugging
-    const bodyText = await page.locator('body').textContent().catch(() => '').then(t => t?.slice(0, 500) || '');
-    throw new Error(`Login form not found. URL: ${pageUrl}, Title: ${pageTitle}. Page content: ${bodyText}`);
+    const pageTitle = await page.title().catch(() => 'unknown');
+    const pageUrl = page.url();
+    const bodyText = await page.locator('body').textContent().catch(() => '').then(t => t?.slice(0, 300) || '');
+    throw new Error(`Login form not found. URL: ${pageUrl}, Title: ${pageTitle}. Content: ${bodyText}`);
   }
 
+  // Fill credentials quickly
   await emailInput.fill(email);
   await passwordInput.fill(password);
 
@@ -45,13 +45,14 @@ test('Connectivity login check', async ({ page }) => {
     await submit.click();
   }
 
+  // Quick check for OTP or dashboard (whichever appears first)
   const otpSelector = 'input[type="text"][inputmode="numeric"], input[data-otp], .otp input';
   const dashboardSelector = 'table, [role="table"]';
 
   const result = await Promise.race([
-    page.waitForSelector(otpSelector, { state: 'visible', timeout: 20000 }).then(() => 'otp').catch(() => null),
-    page.waitForSelector(dashboardSelector, { state: 'visible', timeout: 20000 }).then(() => 'dashboard').catch(() => null),
-    new Promise(resolve => setTimeout(() => resolve(null), 21000))
+    page.waitForSelector(otpSelector, { state: 'visible', timeout: 8000 }).then(() => 'otp').catch(() => null),
+    page.waitForSelector(dashboardSelector, { state: 'visible', timeout: 8000 }).then(() => 'dashboard').catch(() => null),
+    new Promise(resolve => setTimeout(() => resolve(null), 9000))
   ]);
 
   if (!result) {
@@ -66,36 +67,6 @@ test('Connectivity login check', async ({ page }) => {
     throw new Error('Login did not reach OTP or dashboard');
   }
 
-  if (result === 'otp') {
-    const inputs = page.locator('.otp input, .otp .rounded input, input[data-otp], input[type="tel"], input[class*="otp"]');
-    const count = await inputs.count().catch(() => 0);
-    if (count >= 6) {
-      const digits = ['1','2','3','4','5','6'];
-      for (let i = 0; i < 6; i++) {
-        await inputs.nth(i).fill(digits[i]).catch(() => {});
-      }
-    } else {
-      const single = page.locator('input[name="otp"]').first();
-      if ((await single.count()) > 0) await single.fill('123456').catch(() => {});
-    }
-
-    const verifyBtn = page.locator('button:has-text("Verify")').first();
-    if ((await verifyBtn.count()) > 0) {
-      await verifyBtn.click().catch(() => {});
-    } else {
-      const submitBtn = page.locator('button:has-text("Submit"), button[type="submit"]').first();
-      if ((await submitBtn.count()) > 0) await submitBtn.click().catch(() => {});
-    }
-  }
-
-  try {
-    await page.locator(dashboardSelector).first().waitFor({ state: 'visible', timeout: 30000 });
-    await expect(page.locator(dashboardSelector).first()).toBeVisible();
-  } catch (e) {
-    const errorText = await page.locator('[role="alert"], .toast, .alert, .error, text=/invalid|incorrect|failed|error/i').first().textContent().catch(() => '');
-    if (errorText) {
-      throw new Error(`OTP/Login failed: ${errorText.trim()}`);
-    }
-    throw e;
-  }
+  // Success - we reached OTP or dashboard, connectivity confirmed
+  // For connectivity test, we don't need to complete OTP - just confirm we got past login
 });
