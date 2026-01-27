@@ -14,8 +14,11 @@ test('Connectivity login check', async ({ page }) => {
 
   // Quick navigation with short timeout
   try {
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    console.log(`[Connectivity] Attempting to reach: ${baseUrl}`);
+    const response = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    console.log(`[Connectivity] Response status: ${response?.status()}`);
   } catch (navError) {
+    console.error(`[Connectivity] Navigation failed:`, navError.message);
     throw new Error(`Cannot reach ${baseUrl}: ${navError.message}`);
   }
 
