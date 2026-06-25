@@ -13,8 +13,8 @@ test.setTimeout(600000);
 
 test('Dev login with manual OTP verification and create asset wallet', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  const email = 'hwashenwong+2@gambit.com.my';
-  const password = 'Yy12220901!';
+  const email = '';
+  const password = '';
   const baseUrl = process.env.BASE_URL || 'https://staging-web-enterprise.sandbox.gambitcustody-test.com/login';
   const ctx = context;
   let activePage = page;
